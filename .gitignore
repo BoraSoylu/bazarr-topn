@@ -14,6 +14,7 @@ env/
 *.sub
 *.idx
 config.yaml
+.claude/
 .idea/
 .vscode/
 *.swp

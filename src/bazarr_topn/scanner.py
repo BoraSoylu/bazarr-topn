@@ -46,7 +46,7 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
     total_downloaded = 0
 
     for lang_code in config.languages:
-        language = Language(lang_code)
+        language = Language.fromalpha2(lang_code)
 
         # Clean previous topn subs for this video+lang
         removed = clean_existing_topn(video_path, lang_code, config.naming_pattern)

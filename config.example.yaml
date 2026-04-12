@@ -12,7 +12,7 @@ languages:
   - tr
 
 # How many additional subtitles to download per video per language.
-# Bazarr + alass own rank 1. We download ranks 2 through N+1.
+# Bazarr owns rank 1. We download ranks 2 through N+1.
 # With top_n=10, you get 11 total options (1 from Bazarr + 10 from us).
 top_n: 10
 

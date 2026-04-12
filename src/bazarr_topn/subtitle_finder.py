@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def configure_cache() -> None:
     """Set up subliminal's dogpile cache (file-based)."""
     region.configure(
         "dogpile.cache.dbm",
-        arguments={"filename": "/tmp/bazarr_topn_subliminal_cache.dbm"},
+        arguments={"filename": str(Path(tempfile.gettempdir()) / "bazarr_topn_subliminal_cache.dbm")},
         replace_existing_backend=True,
     )
 
