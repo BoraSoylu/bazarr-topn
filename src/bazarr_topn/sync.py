@@ -70,6 +70,13 @@ def _run_sync(
     )
     logger.debug("ffsubsync args: %s", args_list)
 
+    # Suppress harmless "Input audio chunk is too short" tracebacks from silero VAD.
+    # ffsubsync.speech_transformers logs these at ERROR with full traceback via
+    # logger.exception(), but they're expected at audio boundaries and not actionable.
+    _speech_logger = logging.getLogger("ffsubsync.speech_transformers")
+    _prev_level = _speech_logger.level
+    _speech_logger.setLevel(logging.CRITICAL)
+
     try:
         parser = make_parser()
         args = parser.parse_args(args_list)
@@ -93,6 +100,8 @@ def _run_sync(
         if tmp_out.exists():
             tmp_out.unlink()
         return {"ok": False, "offset": None, "scale": None}
+    finally:
+        _speech_logger.setLevel(_prev_level)
 
 
 def sync_subtitle(
