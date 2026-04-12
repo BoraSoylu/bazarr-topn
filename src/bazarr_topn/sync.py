@@ -46,6 +46,16 @@ def sync_subtitle(
         "-i", str(subtitle_path),
         "-o", str(tmp_out),
     ]
+    if config.gss:
+        cmd.append("--gss")
+    if config.vad:
+        cmd.extend(["--vad", config.vad])
+    if config.max_offset_seconds is not None:
+        cmd.extend(["--max-offset-seconds", str(config.max_offset_seconds)])
+    if config.no_fix_framerate:
+        cmd.append("--no-fix-framerate")
+    if config.reference_stream:
+        cmd.extend(["--reference-stream", config.reference_stream])
     if config.extra_args:
         cmd.extend(config.extra_args)
 

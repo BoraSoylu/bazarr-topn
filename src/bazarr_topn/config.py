@@ -54,6 +54,11 @@ class ProviderConfig:
 @dataclass
 class FfsubsyncConfig:
     enabled: bool = True
+    gss: bool = True
+    vad: str = "silero"
+    max_offset_seconds: int = 600
+    no_fix_framerate: bool = False
+    reference_stream: str | None = None  # e.g. "a:0", "s:1"
     extra_args: list[str] = field(default_factory=list)
 
 
@@ -113,6 +118,11 @@ class Config:
         ffs_raw = data.get("ffsubsync", {})
         ffsubsync = FfsubsyncConfig(
             enabled=ffs_raw.get("enabled", True),
+            gss=ffs_raw.get("gss", True),
+            vad=ffs_raw.get("vad", "silero"),
+            max_offset_seconds=ffs_raw.get("max_offset_seconds", 600),
+            no_fix_framerate=ffs_raw.get("no_fix_framerate", False),
+            reference_stream=ffs_raw.get("reference_stream"),
             extra_args=ffs_raw.get("extra_args", []),
         )
 

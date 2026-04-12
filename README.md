@@ -19,7 +19,12 @@ With the default `top_n=10`, you get **11 subtitle options** per video per langu
 ```bash
 git clone https://github.com/BoraSoylu/bazarr-topn
 cd bazarr-topn
+
+# Full install with best-quality sync (silero VAD + torch, ~2GB):
 pip install -e ".[all]"
+
+# Lighter install if you don't want torch:
+pip install -e ".[sync]"
 ```
 
 ## Quick start
@@ -87,8 +92,11 @@ Key settings:
 | `top_n` | 10 | Number of additional subtitles to download per video per language |
 | `min_score` | 30 | Minimum subliminal score (0–100) to accept a subtitle |
 | `max_downloads_per_cycle` | 0 | Download cap per run (0 = unlimited, for VIP accounts) |
-| `ffsubsync.enabled` | true | Auto-sync subtitle timing against the video |
 | `languages` | `[en]` | Target languages (ISO 639-1 codes) |
+| `ffsubsync.enabled` | true | Auto-sync subtitle timing against the video |
+| `ffsubsync.gss` | true | Golden-section search for optimal framerate ratio (slower, more accurate) |
+| `ffsubsync.vad` | `silero` | Voice activity detection — `silero` (best, needs torch) or `webrtc` (lighter) |
+| `ffsubsync.max_offset_seconds` | 600 | Max subtitle shift in seconds (ffsubsync default is only 60) |
 
 ## File naming
 

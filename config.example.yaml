@@ -44,11 +44,39 @@ providers:
   # - name: tvsubtitles
 
 # ffsubsync — automatic timing correction.
-# Requires: pip install bazarr-topn[sync]
+# Requires: pip install bazarr-topn[sync] (or [sync-silero] for best quality)
 ffsubsync:
   enabled: true
-  # Extra args passed to ffsubsync (optional).
-  # extra_args: ["--gss"]
+
+  # Golden-section search — searches for the mathematically optimal framerate
+  # ratio instead of testing only common presets (23.976/25, etc.).
+  # Slower (runs the sync pipeline multiple times) but significantly more accurate.
+  # Default: true. Set to false only if you need faster processing.
+  gss: true
+
+  # Voice activity detection method for speech extraction from video.
+  # "silero" uses a deep learning model — 4x more accurate than "webrtc" (the
+  # ffsubsync default) at detecting speech. Requires torch (~2GB install).
+  # Options: silero, webrtc, auditok, subs_then_silero, subs_then_webrtc, subs_then_auditok
+  # The "subs_then_*" variants first try embedded subtitle tracks, then fall back to VAD.
+  # Default: silero. Use "webrtc" if you can't install torch.
+  vad: silero
+
+  # Max offset in seconds any subtitle segment can shift.
+  # Default: 600 (10 minutes). Handles any realistic offset without inviting false matches.
+  # ffsubsync's own default is 60s which is too low for badly timed subs.
+  max_offset_seconds: 600
+
+  # Disable automatic framerate correction. Do NOT enable this with gss — they conflict.
+  # Default: false. Only set to true if framerate correction is causing problems.
+  # no_fix_framerate: false
+
+  # Which stream in the video to sync against (ffmpeg format).
+  # Useful for multi-audio files. Examples: "a:0" (first audio), "a:1" (second audio)
+  # reference_stream: "a:0"
+
+  # Any additional ffsubsync CLI flags not covered above.
+  # extra_args: []
 
 # Watch mode paths — directories to monitor with `bazarr-topn watch`.
 watch_paths:
