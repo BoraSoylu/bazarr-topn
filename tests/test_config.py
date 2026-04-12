@@ -52,7 +52,7 @@ class TestConfigFromFile:
         config = Config.from_file(sample_config_yaml)
         assert config.provider_names == ["opensubtitlescom"]
         assert config.provider_configs == {
-            "opensubtitlescom": {"username": "testuser", "password": "testpass"}
+            "opensubtitlescom": {"username": "testuser", "password": "testpass", "max_result_pages": 3}
         }
 
 

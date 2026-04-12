@@ -37,6 +37,12 @@ providers:
   - name: opensubtitlescom
     username: "${OPENSUBTITLES_USERNAME}"
     password: "${OPENSUBTITLES_PASSWORD}"
+    # Max API result pages to fetch per search criterion (default: 3).
+    # Each page returns ~20 results. With 2-3 search criteria per video,
+    # 3 pages = ~180 candidates total — more than enough for top_n=10.
+    # OpenSubtitles API rejects requests beyond page 20.
+    # Set to 0 for unlimited (not recommended).
+    max_result_pages: 3
   # - name: addic7ed
   #   username: "${ADDIC7ED_USERNAME}"
   #   password: "${ADDIC7ED_PASSWORD}"

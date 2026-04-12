@@ -41,13 +41,16 @@ class ProviderConfig:
     name: str
     username: str | None = None
     password: str | None = None
+    max_result_pages: int = 3
 
-    def to_subliminal_config(self) -> dict[str, str]:
-        cfg: dict[str, str] = {}
+    def to_subliminal_config(self) -> dict[str, Any]:
+        cfg: dict[str, Any] = {}
         if self.username:
             cfg["username"] = self.username
         if self.password:
             cfg["password"] = self.password
+        if self.max_result_pages > 0:
+            cfg["max_result_pages"] = self.max_result_pages
         return cfg
 
 
@@ -112,6 +115,7 @@ class Config:
                     name=p["name"],
                     username=p.get("username"),
                     password=p.get("password"),
+                    max_result_pages=p.get("max_result_pages", 3),
                 )
             )
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from babelfish import Language
 from subliminal import (
     Video,
+    refine,
     region,
 )
 from subliminal.core import ProviderPool
@@ -39,10 +40,24 @@ class ScoredSubtitle:
 
 
 def scan_video(video_path: str | Path) -> Video:
-    """Scan a video file and return a subliminal Video object."""
+    """Scan a video file and return a subliminal Video object.
+
+    Runs refiners (hash, metadata, omdb, tmdb, tvdb) to populate
+    IMDB ID, TMDB ID, year, and other metadata needed for precise
+    subtitle searches.
+    """
     from subliminal import scan_video as _scan
 
-    return _scan(str(video_path))
+    video = _scan(str(video_path))
+    refine(video)
+    logger.debug(
+        "Scanned %s: title=%r year=%s imdb_id=%s",
+        video_path,
+        getattr(video, "title", None),
+        getattr(video, "year", None),
+        video.imdb_id,
+    )
+    return video
 
 
 def find_subtitles(
