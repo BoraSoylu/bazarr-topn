@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, call
+from unittest.mock import patch
 
 from bazarr_topn.sync import is_available, sync_batch, sync_subtitle, _run_sync
 from bazarr_topn.config import FfsubsyncConfig
@@ -109,11 +109,7 @@ class TestSyncBatch:
             # Simulate the .npz being created on first call
             if serialize_speech:
                 npz_path.write_bytes(b"fake npz")
-            # Simulate synced output
-            tmp_out = subtitle_path.with_suffix(".synced.srt")
-            tmp_out.write_text("synced")
-            tmp_out.replace(subtitle_path)
-            return True
+            return {"ok": True, "offset": 1.5, "scale": 1.0}
 
         with (
             patch("bazarr_topn.sync.is_available", return_value=True),
@@ -145,10 +141,7 @@ class TestSyncBatch:
         def mock_run_sync(reference, subtitle_path, cfg, *, serialize_speech=False):
             calls_seen.append(reference)
             # Don't create .npz — simulates serialize failure
-            tmp_out = subtitle_path.with_suffix(".synced.srt")
-            tmp_out.write_text("synced")
-            tmp_out.replace(subtitle_path)
-            return True
+            return {"ok": True, "offset": 0.5, "scale": 1.0}
 
         with (
             patch("bazarr_topn.sync.is_available", return_value=True),

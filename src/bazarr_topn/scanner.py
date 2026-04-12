@@ -43,10 +43,13 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
 
     Returns the number of subtitles downloaded.
     """
+    logger.info("%s", video_path.name)
+
     try:
         video = scan_video(video_path)
     except Exception:
-        logger.exception("Failed to scan video: %s", video_path)
+        logger.error("  Failed to scan video: %s", video_path)
+        logger.debug("Scan error details:", exc_info=True)
         return 0
 
     total_downloaded = 0
@@ -64,7 +67,7 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
         if downloads_remaining is not None:
             per_lang_remaining = downloads_remaining - total_downloaded
             if per_lang_remaining <= 0:
-                logger.info("Download limit reached, stopping")
+                logger.info("  Download limit reached, stopping")
                 break
 
         saved = download_top_n(video, video_path, language, config, per_lang_remaining)
@@ -74,7 +77,7 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
     # Sync all subtitles in one batch — extracts speech from video once
     if all_saved and config.ffsubsync.enabled:
         synced = sync_batch(video_path, all_saved, config.ffsubsync)
-        logger.info("Synced %d/%d subtitles for %s", synced, len(all_saved), video_path.name)
+        logger.info("  Synced %d/%d subtitles", synced, len(all_saved))
 
     return total_downloaded
 
@@ -96,7 +99,6 @@ def scan(paths: list[str | Path], config: Config) -> dict[str, int]:
     downloads_remaining = config.max_downloads_per_cycle if config.max_downloads_per_cycle > 0 else None
 
     for video_path in videos:
-        logger.info("Processing: %s", video_path.name)
         count = process_video(video_path, config, downloads_remaining)
         total_downloaded += count
         total_processed += 1

@@ -84,6 +84,7 @@ class Config:
     watch_paths: list[str] = field(default_factory=list)
     watch_cooldown: int = 30
     log_level: str = "INFO"
+    log_file: str | None = None
 
     @classmethod
     def from_file(cls, path: str | Path) -> Config:
@@ -142,6 +143,7 @@ class Config:
             watch_paths=data.get("watch_paths", []),
             watch_cooldown=data.get("watch_cooldown", 30),
             log_level=data.get("log_level", "INFO"),
+            log_file=data.get("log_file"),
         )
 
     @property

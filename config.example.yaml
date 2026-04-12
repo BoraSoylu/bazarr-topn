@@ -93,5 +93,11 @@ watch_paths:
 # Prevents processing incomplete downloads.
 watch_cooldown: 30
 
-# Logging level: DEBUG, INFO, WARNING, ERROR
+# Logging level for console output: DEBUG, INFO, WARNING, ERROR
+# DEBUG shows all internal details; INFO (default) shows clean progress output.
 log_level: "INFO"
+
+# Log file — full DEBUG output always written here regardless of console log level.
+# Includes all subliminal, ffsubsync, and torch internals for diagnosing issues.
+# Leave unset to disable file logging.
+# log_file: "/var/log/bazarr-topn.log"

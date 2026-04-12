@@ -65,6 +65,7 @@ class TestConfigDefaults:
         assert config.languages == ["en"]
         assert config.providers == []
         assert config.ffsubsync.enabled is True
+        assert config.log_file is None
 
     def test_from_empty_dict(self) -> None:
         config = Config.from_dict({})

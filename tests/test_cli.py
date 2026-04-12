@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from click.testing import CliRunner
 
-from bazarr_topn.cli import main
+from bazarr_topn.cli import main, _QuietConsoleFilter
 
 
 class TestCLI:
@@ -52,3 +53,41 @@ class TestCLI:
         )
         assert result.exit_code == 0
         assert "0/0 videos processed" in result.output
+
+
+class TestQuietConsoleFilter:
+    def setup_method(self) -> None:
+        self.filt = _QuietConsoleFilter()
+
+    def _record(self, name: str, level: int) -> logging.LogRecord:
+        return logging.LogRecord(
+            name=name, level=level, pathname="", lineno=0,
+            msg="test", args=(), exc_info=None,
+        )
+
+    def test_passes_bazarr_topn_info(self) -> None:
+        assert self.filt.filter(self._record("bazarr_topn.scanner", logging.INFO))
+
+    def test_passes_bazarr_topn_debug(self) -> None:
+        assert self.filt.filter(self._record("bazarr_topn.sync", logging.DEBUG))
+
+    def test_blocks_subliminal_info(self) -> None:
+        assert not self.filt.filter(self._record("subliminal.core", logging.INFO))
+
+    def test_blocks_subliminal_debug(self) -> None:
+        assert not self.filt.filter(self._record("subliminal.providers", logging.DEBUG))
+
+    def test_passes_subliminal_warning(self) -> None:
+        assert self.filt.filter(self._record("subliminal.core", logging.WARNING))
+
+    def test_blocks_torch_info(self) -> None:
+        assert not self.filt.filter(self._record("torch.jit", logging.INFO))
+
+    def test_blocks_srt_info(self) -> None:
+        assert not self.filt.filter(self._record("srt", logging.INFO))
+
+    def test_blocks_ffsubsync_info(self) -> None:
+        assert not self.filt.filter(self._record("ffsubsync.speech_transformers", logging.INFO))
+
+    def test_passes_ffsubsync_warning(self) -> None:
+        assert self.filt.filter(self._record("ffsubsync", logging.WARNING))

@@ -12,12 +12,45 @@ from bazarr_topn import __version__
 from bazarr_topn.config import Config
 
 
-def setup_logging(level: str) -> None:
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+class _QuietConsoleFilter(logging.Filter):
+    """Block noisy third-party loggers from the console unless WARNING+."""
+
+    NOISY = frozenset({
+        "subliminal", "stevedore", "rebulk", "enzyme", "guessit",
+        "dogpile", "urllib3", "requests", "srt", "ffsubsync", "torch",
+        "chardet", "babelfish", "knowit", "pymediainfo",
+    })
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        top = record.name.split(".")[0]
+        if top in self.NOISY:
+            return record.levelno >= logging.WARNING
+        return True
+
+
+def setup_logging(level: str, log_file: str | None = None) -> None:
+    """Configure dual logging: clean console + optional full-debug file log."""
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    # Console handler: clean output at user's chosen level
+    console = logging.StreamHandler()
+    console.setLevel(getattr(logging, level.upper(), logging.INFO))
+    console.setFormatter(logging.Formatter("%(message)s"))
+    console.addFilter(_QuietConsoleFilter())
+    root.addHandler(console)
+
+    # File handler: full DEBUG output including all third-party internals
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(log_file)
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        root.addHandler(fh)
 
 
 def load_config(config_path: str | None) -> Config:
@@ -62,7 +95,7 @@ def main(ctx: click.Context, config_path: str | None, log_level: str | None) -> 
     config = load_config(config_path)
     if log_level:
         config.log_level = log_level.upper()
-    setup_logging(config.log_level)
+    setup_logging(config.log_level, config.log_file)
     ctx.obj["config"] = config
 
 

@@ -117,14 +117,17 @@ def download_top_n(
     """
     lang_str = str(language)
 
+    logger.info("  Searching subtitles [%s]...", lang_str)
     candidates = find_subtitles(video, language, config)
 
     # Filter by minimum score
+    unfiltered_count = len(candidates)
     if config.min_score > 0:
         candidates = [s for s in candidates if s.score >= config.min_score]
 
     if not candidates:
-        logger.info("No subtitles found for %s [%s]", video_path, lang_str)
+        logger.info("  No subtitles found for [%s] (%d below min_score=%d)",
+                     lang_str, unfiltered_count, config.min_score)
         return []
 
     # Cap at top_n (or downloads_remaining if lower)
@@ -133,15 +136,11 @@ def download_top_n(
         limit = min(limit, downloads_remaining)
     candidates = candidates[:limit]
 
-    logger.info(
-        "Found %d candidates for %s [%s], downloading top %d",
-        len(candidates),
-        video_path,
-        lang_str,
-        len(candidates),
-    )
+    logger.info("  Found %d candidates [%s], downloading %d...",
+                unfiltered_count, lang_str, len(candidates))
 
     saved: list[Path] = []
+    skipped = 0
     provider_names = config.provider_names or None
     provider_configs = config.provider_configs or {}
 
@@ -154,22 +153,25 @@ def download_top_n(
             try:
                 pool.download_subtitle(scored.subtitle)
                 if scored.subtitle.content is None:
-                    logger.warning("Empty subtitle content for rank %d, skipping", rank)
+                    logger.debug("Empty subtitle content for rank %d, skipping", rank)
+                    skipped += 1
                     continue
 
                 out_path = subtitle_path(
                     video_path, lang_str, rank, config.naming_pattern
                 )
                 out_path.write_bytes(scored.subtitle.content)
-                logger.info(
-                    "  rank %d: score=%d provider=%s → %s",
-                    rank,
-                    scored.score,
-                    scored.provider,
-                    out_path.name,
+                logger.debug(
+                    "  rank %d: score=%d provider=%s -> %s",
+                    rank, scored.score, scored.provider, out_path.name,
                 )
                 saved.append(out_path)
             except Exception:
-                logger.exception("Failed to download rank %d subtitle", rank)
+                logger.debug("Failed to download rank %d subtitle", rank, exc_info=True)
+                skipped += 1
+
+    logger.info("  Downloaded %d subtitles [%s]%s",
+                len(saved), lang_str,
+                f" ({skipped} skipped)" if skipped else "")
 
     return saved

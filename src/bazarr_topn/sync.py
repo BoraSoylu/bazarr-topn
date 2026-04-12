@@ -57,8 +57,11 @@ def _run_sync(
     config: FfsubsyncConfig,
     *,
     serialize_speech: bool = False,
-) -> bool:
-    """Run a single ffsubsync invocation. Returns True on success."""
+) -> dict:
+    """Run a single ffsubsync invocation.
+
+    Returns a dict with 'ok' (bool), 'offset' (float|None), 'scale' (float|None).
+    """
     from ffsubsync.ffsubsync import make_parser, run
 
     tmp_out = subtitle_path.with_suffix(".synced.srt")
@@ -74,29 +77,22 @@ def _run_sync(
 
         if result.get("retval") == 0 and tmp_out.exists():
             tmp_out.replace(subtitle_path)
-            offset = result.get("offset_seconds")
-            framerate = result.get("framerate_scale_factor")
-            logger.info(
-                "Synced: %s (offset=%.2fs, framerate_scale=%.4f)",
-                subtitle_path.name,
-                offset if offset is not None else 0.0,
-                framerate if framerate is not None else 1.0,
-            )
-            return True
+            return {
+                "ok": True,
+                "offset": result.get("offset_seconds"),
+                "scale": result.get("framerate_scale_factor"),
+            }
         else:
-            logger.warning(
-                "ffsubsync failed (retval=%s) for %s",
-                result.get("retval"),
-                subtitle_path.name,
-            )
+            logger.debug("ffsubsync failed (retval=%s) for %s",
+                         result.get("retval"), subtitle_path.name)
             if tmp_out.exists():
                 tmp_out.unlink()
-            return False
+            return {"ok": False, "offset": None, "scale": None}
     except Exception:
-        logger.exception("ffsubsync error for %s", subtitle_path.name)
+        logger.debug("ffsubsync error for %s", subtitle_path.name, exc_info=True)
         if tmp_out.exists():
             tmp_out.unlink()
-        return False
+        return {"ok": False, "offset": None, "scale": None}
 
 
 def sync_subtitle(
@@ -116,7 +112,8 @@ def sync_subtitle(
     if not is_available():
         logger.warning("ffsubsync not installed, skipping sync")
         return False
-    return _run_sync(str(video_path), Path(subtitle_path), config)
+    result = _run_sync(str(video_path), Path(subtitle_path), config)
+    return result["ok"]
 
 
 def sync_batch(
@@ -142,27 +139,42 @@ def sync_batch(
 
     video_path = Path(video_path)
     speech_npz = video_path.with_suffix(".npz")
+    total = len(subtitle_paths)
     count = 0
     used_cache = False
 
+    # Build a description of sync settings for the header
+    vad_name = config.vad or "webrtc"
+    extras = []
+    if config.gss:
+        extras.append("GSS")
+    label = f"{vad_name} VAD" + (f" + {', '.join(extras)}" if extras else "")
+    logger.info("  Syncing %d subtitles (%s)...", total, label)
+
     try:
         for i, sp in enumerate(subtitle_paths):
+            idx = i + 1
             if i == 0:
                 # First subtitle: extract speech from video and serialize to .npz
-                logger.info("Extracting speech reference from %s (this takes a while)...", video_path.name)
-                ok = _run_sync(str(video_path), sp, config, serialize_speech=True)
-                if ok:
-                    count += 1
+                result = _run_sync(str(video_path), sp, config, serialize_speech=True)
                 if speech_npz.exists():
                     used_cache = True
-                    logger.info("Speech reference cached at %s", speech_npz.name)
+                    logger.debug("Speech reference cached at %s", speech_npz.name)
                 else:
-                    logger.warning("Speech cache not created, subsequent syncs will re-extract")
+                    logger.debug("Speech cache not created, subsequent syncs will re-extract")
             else:
                 # Subsequent subtitles: use cached .npz as reference (fast)
                 reference = str(speech_npz) if used_cache else str(video_path)
-                if _run_sync(reference, sp, config):
-                    count += 1
+                result = _run_sync(reference, sp, config)
+
+            if result["ok"]:
+                count += 1
+                offset = result["offset"] or 0.0
+                scale = result["scale"] or 1.0
+                logger.info("    [%d/%d] %s  offset=%+.1fs scale=%.3f",
+                            idx, total, sp.name, offset, scale)
+            else:
+                logger.info("    [%d/%d] %s  FAILED", idx, total, sp.name)
     finally:
         # Clean up the .npz cache file
         if speech_npz.exists():
