@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
 from pathlib import Path
 
 from bazarr_topn.config import FfsubsyncConfig
@@ -13,8 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 def is_available() -> bool:
-    """Check if ffsubsync is installed."""
-    return shutil.which("ffsubsync") is not None
+    """Check if ffsubsync is importable."""
+    try:
+        import ffsubsync  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 def sync_subtitle(
@@ -36,54 +39,59 @@ def sync_subtitle(
         logger.warning("ffsubsync not installed, skipping sync")
         return False
 
+    from ffsubsync.ffsubsync import make_parser, run
+
     video_path = Path(video_path)
     subtitle_path = Path(subtitle_path)
     tmp_out = subtitle_path.with_suffix(".synced.srt")
 
-    cmd = [
-        "ffsubsync",
+    args_list = [
         str(video_path),
         "-i", str(subtitle_path),
         "-o", str(tmp_out),
     ]
     if config.gss:
-        cmd.append("--gss")
+        args_list.append("--gss")
     if config.vad:
-        cmd.extend(["--vad", config.vad])
+        args_list.extend(["--vad", config.vad])
     if config.max_offset_seconds is not None:
-        cmd.extend(["--max-offset-seconds", str(config.max_offset_seconds)])
+        args_list.extend(["--max-offset-seconds", str(config.max_offset_seconds)])
     if config.no_fix_framerate:
-        cmd.append("--no-fix-framerate")
+        args_list.append("--no-fix-framerate")
     if config.reference_stream:
-        cmd.extend(["--reference-stream", config.reference_stream])
+        args_list.extend(["--reference-stream", config.reference_stream])
     if config.extra_args:
-        cmd.extend(config.extra_args)
+        args_list.extend(config.extra_args)
 
-    logger.debug("Running: %s", " ".join(cmd))
+    logger.debug("ffsubsync args: %s", args_list)
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode == 0 and tmp_out.exists():
+        parser = make_parser()
+        args = parser.parse_args(args_list)
+        result = run(args)
+
+        if result.get("retval") == 0 and tmp_out.exists():
             tmp_out.replace(subtitle_path)
-            logger.info("Synced: %s", subtitle_path.name)
+            offset = result.get("offset_seconds")
+            framerate = result.get("framerate_scale_factor")
+            logger.info(
+                "Synced: %s (offset=%.2fs, framerate_scale=%.4f)",
+                subtitle_path.name,
+                offset if offset is not None else 0.0,
+                framerate if framerate is not None else 1.0,
+            )
             return True
         else:
             logger.warning(
-                "ffsubsync failed (rc=%d) for %s: %s",
-                result.returncode,
+                "ffsubsync failed (retval=%s) for %s",
+                result.get("retval"),
                 subtitle_path.name,
-                result.stderr[:500] if result.stderr else "",
             )
             if tmp_out.exists():
                 tmp_out.unlink()
             return False
-    except subprocess.TimeoutExpired:
-        logger.error("ffsubsync timed out for %s", subtitle_path.name)
+    except Exception:
+        logger.exception("ffsubsync error for %s", subtitle_path.name)
         if tmp_out.exists():
             tmp_out.unlink()
         return False

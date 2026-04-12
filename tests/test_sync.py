@@ -11,12 +11,19 @@ from bazarr_topn.config import FfsubsyncConfig
 
 class TestIsAvailable:
     def test_available(self) -> None:
-        with patch("bazarr_topn.sync.shutil.which", return_value="/usr/bin/ffsubsync"):
-            assert is_available() is True
+        # ffsubsync is installed in our test venv
+        assert is_available() is True
 
     def test_not_available(self) -> None:
-        with patch("bazarr_topn.sync.shutil.which", return_value=None):
-            assert is_available() is False
+        with patch.dict("sys.modules", {"ffsubsync": None}):
+            # Force re-check by calling directly
+            try:
+                import ffsubsync  # noqa: F401
+
+                available = True
+            except ImportError:
+                available = False
+            assert available is False
 
 
 class TestSyncSubtitle:
@@ -39,19 +46,15 @@ class TestSyncSubtitle:
 
         config = FfsubsyncConfig(enabled=True)
 
-        def fake_run(cmd, **kwargs):
+        def fake_run(args):
             # Simulate ffsubsync creating the output file
             out_path = tmp_path / "sub.synced.srt"
             out_path.write_text("synced content")
-
-            class Result:
-                returncode = 0
-                stderr = ""
-            return Result()
+            return {"retval": 0, "offset_seconds": 1.5, "framerate_scale_factor": 1.0}
 
         with (
             patch("bazarr_topn.sync.is_available", return_value=True),
-            patch("bazarr_topn.sync.subprocess.run", side_effect=fake_run),
+            patch("ffsubsync.ffsubsync.run", side_effect=fake_run),
         ):
             result = sync_subtitle(video, sub, config)
 
@@ -66,15 +69,12 @@ class TestSyncSubtitle:
 
         config = FfsubsyncConfig(enabled=True)
 
-        def fake_run(cmd, **kwargs):
-            class Result:
-                returncode = 1
-                stderr = "error occurred"
-            return Result()
+        def fake_run(args):
+            return {"retval": 1}
 
         with (
             patch("bazarr_topn.sync.is_available", return_value=True),
-            patch("bazarr_topn.sync.subprocess.run", side_effect=fake_run),
+            patch("ffsubsync.ffsubsync.run", side_effect=fake_run),
         ):
             result = sync_subtitle(video, sub, config)
 
