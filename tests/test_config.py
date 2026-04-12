@@ -71,3 +71,24 @@ class TestConfigDefaults:
         config = Config.from_dict({})
         assert config.top_n == 10
         assert config.bazarr.url == "http://localhost:6767"
+
+
+class TestPathMappings:
+    def test_no_mappings(self) -> None:
+        config = Config()
+        assert config.map_path("/media/movies/Inception/Inception.mkv") == "/media/movies/Inception/Inception.mkv"
+
+    def test_mapping_applied(self) -> None:
+        config = Config(path_mappings=[{"container": "/media", "host": "/mnt/media"}])
+        assert config.map_path("/media/movies/Inception/Inception.mkv") == "/mnt/media/movies/Inception/Inception.mkv"
+
+    def test_no_match(self) -> None:
+        config = Config(path_mappings=[{"container": "/data", "host": "/mnt/data"}])
+        assert config.map_path("/media/movies/Inception/Inception.mkv") == "/media/movies/Inception/Inception.mkv"
+
+    def test_first_match_wins(self) -> None:
+        config = Config(path_mappings=[
+            {"container": "/media/movies", "host": "/mnt/fast/movies"},
+            {"container": "/media", "host": "/mnt/media"},
+        ])
+        assert config.map_path("/media/movies/Inception/Inception.mkv") == "/mnt/fast/movies/Inception/Inception.mkv"

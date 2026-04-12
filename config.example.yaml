@@ -84,6 +84,13 @@ ffsubsync:
   # Any additional ffsubsync CLI flags not covered above.
   # extra_args: []
 
+# Path mappings — translate Docker container paths to host paths.
+# Required when Bazarr runs in Docker and --all returns container paths
+# like /media/movies/... instead of host paths like /mnt/media/movies/...
+# path_mappings:
+#   - container: "/media"
+#     host: "/mnt/media"
+
 # Watch mode paths — directories to monitor with `bazarr-topn watch`.
 watch_paths:
   - "/path/to/movies"

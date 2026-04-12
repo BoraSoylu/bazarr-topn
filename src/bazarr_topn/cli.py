@@ -121,7 +121,7 @@ def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool) -> None:
         client = BazarrClient(config.bazarr)
         click.echo("Fetching inventory from Bazarr...")
         items = client.get_movies() + client.get_all_episodes()
-        scan_paths = [item.path for item in items if item.monitored]
+        scan_paths = [config.map_path(item.path) for item in items if item.monitored]
         click.echo(f"Found {len(scan_paths)} monitored items in Bazarr")
     elif paths:
         scan_paths = list(paths)

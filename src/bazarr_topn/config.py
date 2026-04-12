@@ -83,6 +83,7 @@ class Config:
     ffsubsync: FfsubsyncConfig = field(default_factory=FfsubsyncConfig)
     watch_paths: list[str] = field(default_factory=list)
     watch_cooldown: int = 30
+    path_mappings: list[dict[str, str]] = field(default_factory=list)
     log_level: str = "INFO"
     log_file: str | None = None
 
@@ -140,11 +141,21 @@ class Config:
             naming_pattern=data.get("naming_pattern", "{video_stem}.{lang}.topn-{rank}.srt"),
             providers=providers,
             ffsubsync=ffsubsync,
+            path_mappings=data.get("path_mappings", []),
             watch_paths=data.get("watch_paths", []),
             watch_cooldown=data.get("watch_cooldown", 30),
             log_level=data.get("log_level", "INFO"),
             log_file=data.get("log_file"),
         )
+
+    def map_path(self, path: str) -> str:
+        """Apply path_mappings to translate container paths to host paths."""
+        for m in self.path_mappings:
+            container = m.get("container", "")
+            host = m.get("host", "")
+            if container and path.startswith(container):
+                return host + path[len(container):]
+        return path
 
     @property
     def provider_names(self) -> list[str]:
