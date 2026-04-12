@@ -43,7 +43,14 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
 
     Returns the number of subtitles downloaded.
     """
+    try:
+        video = scan_video(video_path)
+    except Exception:
+        logger.exception("Failed to scan video: %s", video_path)
+        return 0
+
     total_downloaded = 0
+    all_saved: list[Path] = []
 
     for lang_code in config.languages:
         language = Language.fromalpha2(lang_code)
@@ -52,12 +59,6 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
         removed = clean_existing_topn(video_path, lang_code, config.naming_pattern)
         if removed:
             logger.debug("Cleaned %d old topn subs for %s [%s]", removed, video_path.name, lang_code)
-
-        try:
-            video = scan_video(video_path)
-        except Exception:
-            logger.exception("Failed to scan video: %s", video_path)
-            return total_downloaded
 
         per_lang_remaining = None
         if downloads_remaining is not None:
@@ -68,10 +69,12 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
 
         saved = download_top_n(video, video_path, language, config, per_lang_remaining)
         total_downloaded += len(saved)
+        all_saved.extend(saved)
 
-        if saved and config.ffsubsync.enabled:
-            synced = sync_batch(video_path, saved, config.ffsubsync)
-            logger.info("Synced %d/%d subtitles for %s [%s]", synced, len(saved), video_path.name, lang_code)
+    # Sync all subtitles in one batch — extracts speech from video once
+    if all_saved and config.ffsubsync.enabled:
+        synced = sync_batch(video_path, all_saved, config.ffsubsync)
+        logger.info("Synced %d/%d subtitles for %s", synced, len(all_saved), video_path.name)
 
     return total_downloaded
 

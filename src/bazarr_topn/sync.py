@@ -20,36 +20,22 @@ def is_available() -> bool:
         return False
 
 
-def sync_subtitle(
-    video_path: str | Path,
-    subtitle_path: str | Path,
+def _build_args(
+    reference: str,
+    subtitle_path: Path,
+    tmp_out: Path,
     config: FfsubsyncConfig,
-) -> bool:
-    """Run ffsubsync to correct subtitle timing against the video.
-
-    Syncs in-place (overwrites the subtitle file).
-
-    Returns:
-        True if sync succeeded, False otherwise.
-    """
-    if not config.enabled:
-        return False
-
-    if not is_available():
-        logger.warning("ffsubsync not installed, skipping sync")
-        return False
-
-    from ffsubsync.ffsubsync import make_parser, run
-
-    video_path = Path(video_path)
-    subtitle_path = Path(subtitle_path)
-    tmp_out = subtitle_path.with_suffix(".synced.srt")
-
+    *,
+    serialize_speech: bool = False,
+) -> list[str]:
+    """Build the ffsubsync argument list."""
     args_list = [
-        str(video_path),
+        reference,
         "-i", str(subtitle_path),
         "-o", str(tmp_out),
     ]
+    if serialize_speech:
+        args_list.append("--serialize-speech")
     if config.gss:
         args_list.append("--gss")
     if config.vad:
@@ -62,7 +48,23 @@ def sync_subtitle(
         args_list.extend(["--reference-stream", config.reference_stream])
     if config.extra_args:
         args_list.extend(config.extra_args)
+    return args_list
 
+
+def _run_sync(
+    reference: str,
+    subtitle_path: Path,
+    config: FfsubsyncConfig,
+    *,
+    serialize_speech: bool = False,
+) -> bool:
+    """Run a single ffsubsync invocation. Returns True on success."""
+    from ffsubsync.ffsubsync import make_parser, run
+
+    tmp_out = subtitle_path.with_suffix(".synced.srt")
+    args_list = _build_args(
+        reference, subtitle_path, tmp_out, config, serialize_speech=serialize_speech
+    )
     logger.debug("ffsubsync args: %s", args_list)
 
     try:
@@ -97,16 +99,74 @@ def sync_subtitle(
         return False
 
 
+def sync_subtitle(
+    video_path: str | Path,
+    subtitle_path: str | Path,
+    config: FfsubsyncConfig,
+) -> bool:
+    """Run ffsubsync to correct subtitle timing against the video.
+
+    Syncs in-place (overwrites the subtitle file).
+
+    Returns:
+        True if sync succeeded, False otherwise.
+    """
+    if not config.enabled:
+        return False
+    if not is_available():
+        logger.warning("ffsubsync not installed, skipping sync")
+        return False
+    return _run_sync(str(video_path), Path(subtitle_path), config)
+
+
 def sync_batch(
     video_path: str | Path,
     subtitle_paths: list[Path],
     config: FfsubsyncConfig,
 ) -> int:
-    """Sync a batch of subtitles against a video. Returns count of successful syncs."""
+    """Sync a batch of subtitles against a video.
+
+    Extracts the speech reference (VAD) from the video once on the first
+    subtitle, saves it as a .npz file, then reuses it for all remaining
+    subtitles. This avoids re-extracting audio for every subtitle.
+
+    Returns count of successful syncs.
+    """
     if not config.enabled:
         return 0
+    if not subtitle_paths:
+        return 0
+    if not is_available():
+        logger.warning("ffsubsync not installed, skipping sync")
+        return 0
+
+    video_path = Path(video_path)
+    speech_npz = video_path.with_suffix(".npz")
     count = 0
-    for sp in subtitle_paths:
-        if sync_subtitle(video_path, sp, config):
-            count += 1
+    used_cache = False
+
+    try:
+        for i, sp in enumerate(subtitle_paths):
+            if i == 0:
+                # First subtitle: extract speech from video and serialize to .npz
+                logger.info("Extracting speech reference from %s (this takes a while)...", video_path.name)
+                ok = _run_sync(str(video_path), sp, config, serialize_speech=True)
+                if ok:
+                    count += 1
+                if speech_npz.exists():
+                    used_cache = True
+                    logger.info("Speech reference cached at %s", speech_npz.name)
+                else:
+                    logger.warning("Speech cache not created, subsequent syncs will re-extract")
+            else:
+                # Subsequent subtitles: use cached .npz as reference (fast)
+                reference = str(speech_npz) if used_cache else str(video_path)
+                if _run_sync(reference, sp, config):
+                    count += 1
+    finally:
+        # Clean up the .npz cache file
+        if speech_npz.exists():
+            speech_npz.unlink()
+            logger.debug("Cleaned up speech cache %s", speech_npz.name)
+
     return count
