@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bazarr-topn"
+version = "0.1.0"
+description = "Download the top N subtitles for every video in your library — ranked, synced, and ready to switch."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "bazarr-topn contributors" }]
+keywords = ["subtitles", "bazarr", "subliminal", "ffsubsync", "jellyfin", "plex", "media-server"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+]
+
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "subliminal>=2.2",
+    "babelfish>=0.6",
+    "requests>=2.28",
+    "watchdog>=3.0",
+]
+
+[project.optional-dependencies]
+sync = ["ffsubsync>=0.4.25"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "responses>=0.23",
+]
+all = ["bazarr-topn[sync,dev]"]
+
+[project.scripts]
+bazarr-topn = "bazarr_topn.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/BoraSoylu/bazarr-topn"
+Issues = "https://github.com/BoraSoylu/bazarr-topn/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bazarr_topn"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100

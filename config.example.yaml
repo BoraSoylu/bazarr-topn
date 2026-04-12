@@ -1,0 +1,63 @@
+# bazarr-topn configuration
+# Environment variables can be used anywhere with ${VAR_NAME} syntax.
+
+# Bazarr API — used read-only for media inventory.
+bazarr:
+  url: "http://localhost:6767"
+  api_key: "${BAZARR_API_KEY}"
+
+# Languages to download subtitles for (ISO 639-1 codes).
+languages:
+  - en
+  - tr
+
+# How many additional subtitles to download per video per language.
+# Bazarr + alass own rank 1. We download ranks 2 through N+1.
+# With top_n=10, you get 11 total options (1 from Bazarr + 10 from us).
+top_n: 10
+
+# Minimum subliminal score to accept a subtitle (0–100).
+# Higher = stricter matching. Recommended: 30–50.
+# Set to 0 to accept everything subliminal finds.
+min_score: 30
+
+# Maximum subtitle downloads per run. 0 = unlimited.
+# Useful if your provider has daily limits (OpenSubtitles free = 20/day).
+# With OpenSubtitles VIP, set to 0.
+max_downloads_per_cycle: 0
+
+# Subtitle file naming pattern.
+# Available variables: {video_stem}, {lang}, {rank}
+# Rank starts at 2 (rank 1 is Bazarr's subtitle).
+naming_pattern: "{video_stem}.{lang}.topn-{rank}.srt"
+
+# Subliminal providers and their credentials.
+# Uncomment and configure providers you have accounts for.
+providers:
+  - name: opensubtitlescom
+    username: "${OPENSUBTITLES_USERNAME}"
+    password: "${OPENSUBTITLES_PASSWORD}"
+  # - name: addic7ed
+  #   username: "${ADDIC7ED_USERNAME}"
+  #   password: "${ADDIC7ED_PASSWORD}"
+  # - name: podnapisi
+  # - name: tvsubtitles
+
+# ffsubsync — automatic timing correction.
+# Requires: pip install bazarr-topn[sync]
+ffsubsync:
+  enabled: true
+  # Extra args passed to ffsubsync (optional).
+  # extra_args: ["--gss"]
+
+# Watch mode paths — directories to monitor with `bazarr-topn watch`.
+watch_paths:
+  - "/path/to/movies"
+  - "/path/to/tv"
+
+# Cooldown in seconds after a file event before processing.
+# Prevents processing incomplete downloads.
+watch_cooldown: 30
+
+# Logging level: DEBUG, INFO, WARNING, ERROR
+log_level: "INFO"
