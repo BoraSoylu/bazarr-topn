@@ -50,13 +50,12 @@ def process_video(
     """
     # Skip if all languages already have topn subs (unless --force)
     if not force:
-        all_have_subs = all(
-            existing_topn_subs(video_path, lang, config.naming_pattern)
-            for lang in config.languages
-        )
-        if all_have_subs:
-            logger.debug("Skipping %s — topn subs already exist", video_path.name)
-            return 0
+        langs_with_subs = [
+            lang for lang in config.languages
+            if existing_topn_subs(video_path, lang, config.naming_pattern)
+        ]
+        if len(langs_with_subs) == len(config.languages):
+            return -1  # signal: skipped
 
     logger.info("%s", video_path.name)
 
@@ -110,33 +109,42 @@ def scan(paths: list[str | Path], config: Config, force: bool = False) -> dict[s
     configure_cache()
 
     videos = find_videos(paths)
-    logger.info("Found %d video files to process", len(videos))
+    logger.info("Found %d video files", len(videos))
 
     total_downloaded = 0
     total_processed = 0
-    total_skipped = 0
+    total_skipped_existing = 0
+    total_skipped_limit = 0
 
     downloads_remaining = config.max_downloads_per_cycle if config.max_downloads_per_cycle > 0 else None
 
     for video_path in videos:
         count = process_video(video_path, config, downloads_remaining, force=force)
+        if count == -1:
+            # Skipped — already has topn subs
+            total_skipped_existing += 1
+            continue
         total_downloaded += count
         total_processed += 1
 
         if downloads_remaining is not None:
             downloads_remaining -= count
             if downloads_remaining <= 0:
-                total_skipped = len(videos) - total_processed
+                total_skipped_limit = len(videos) - total_processed - total_skipped_existing
                 logger.warning(
                     "Download limit reached after %d files (%d skipped)",
                     total_processed,
-                    total_skipped,
+                    total_skipped_limit,
                 )
                 break
+
+    if total_skipped_existing:
+        logger.info("Skipped %d videos with existing topn subs", total_skipped_existing)
 
     return {
         "videos_found": len(videos),
         "videos_processed": total_processed,
-        "videos_skipped": total_skipped,
+        "videos_skipped": total_skipped_limit,
+        "videos_skipped_existing": total_skipped_existing,
         "subtitles_downloaded": total_downloaded,
     }

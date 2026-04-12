@@ -23,7 +23,7 @@ def subtitle_path(
         Full path to the subtitle file, in the same directory as the video.
     """
     video = Path(video_path)
-    filename = pattern.format(video_stem=video.stem, lang=lang, rank=rank)
+    filename = pattern.format(video_stem=video.stem, lang=lang, rank=f"{rank:02d}")
     return video.parent / filename
 
 

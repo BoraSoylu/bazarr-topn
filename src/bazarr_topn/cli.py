@@ -138,8 +138,10 @@ def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool, force: bool
         f"\nDone: {result['videos_processed']}/{result['videos_found']} videos processed, "
         f"{result['subtitles_downloaded']} subtitles downloaded"
     )
+    if result.get("videos_skipped_existing"):
+        click.echo(f"  ({result['videos_skipped_existing']} skipped — already have topn subs)")
     if result["videos_skipped"]:
-        click.echo(f"  ({result['videos_skipped']} videos skipped — download limit reached)")
+        click.echo(f"  ({result['videos_skipped']} skipped — download limit reached)")
 
 
 @main.command()
