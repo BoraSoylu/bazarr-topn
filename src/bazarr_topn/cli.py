@@ -102,15 +102,19 @@ def main(ctx: click.Context, config_path: str | None, log_level: str | None) -> 
 @main.command()
 @click.argument("paths", nargs=-1, type=click.Path(exists=True))
 @click.option("--all", "scan_all", is_flag=True, help="Full library rescan using Bazarr inventory")
+@click.option("--force", is_flag=True, help="Re-download even if topn subs already exist")
 @click.pass_context
-def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool) -> None:
+def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool, force: bool) -> None:
     """Scan files or directories for subtitles.
+
+    Skips videos that already have topn subtitles. Use --force to re-download.
 
     \b
     Examples:
       bazarr-topn scan /media/movies/Inception
       bazarr-topn scan /media/movies /media/tv
       bazarr-topn scan --all
+      bazarr-topn scan --all --force
     """
     from bazarr_topn.bazarr_client import BazarrClient
     from bazarr_topn.scanner import scan as do_scan
@@ -129,7 +133,7 @@ def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool) -> None:
         click.echo("Error: provide paths or use --all", err=True)
         sys.exit(1)
 
-    result = do_scan(scan_paths, config)
+    result = do_scan(scan_paths, config, force=force)
     click.echo(
         f"\nDone: {result['videos_processed']}/{result['videos_found']} videos processed, "
         f"{result['subtitles_downloaded']} subtitles downloaded"

@@ -8,7 +8,7 @@ from pathlib import Path
 from babelfish import Language
 
 from bazarr_topn.config import Config
-from bazarr_topn.naming import clean_existing_topn
+from bazarr_topn.naming import clean_existing_topn, existing_topn_subs
 from bazarr_topn.subtitle_finder import configure_cache, download_top_n, scan_video
 from bazarr_topn.sync import sync_batch
 
@@ -38,11 +38,26 @@ def find_videos(paths: list[str | Path]) -> list[Path]:
     return videos
 
 
-def process_video(video_path: Path, config: Config, downloads_remaining: int | None = None) -> int:
+def process_video(
+    video_path: Path,
+    config: Config,
+    downloads_remaining: int | None = None,
+    force: bool = False,
+) -> int:
     """Process a single video: find, download, and optionally sync subtitles.
 
     Returns the number of subtitles downloaded.
     """
+    # Skip if all languages already have topn subs (unless --force)
+    if not force:
+        all_have_subs = all(
+            existing_topn_subs(video_path, lang, config.naming_pattern)
+            for lang in config.languages
+        )
+        if all_have_subs:
+            logger.debug("Skipping %s — topn subs already exist", video_path.name)
+            return 0
+
     logger.info("%s", video_path.name)
 
     try:
@@ -58,7 +73,12 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
     for lang_code in config.languages:
         language = Language.fromalpha2(lang_code)
 
-        # Clean previous topn subs for this video+lang
+        # Skip this language if it already has topn subs (unless --force)
+        if not force and existing_topn_subs(video_path, lang_code, config.naming_pattern):
+            logger.debug("  Skipping [%s] — already has topn subs", lang_code)
+            continue
+
+        # Clean previous topn subs for this video+lang (only reached with --force)
         removed = clean_existing_topn(video_path, lang_code, config.naming_pattern)
         if removed:
             logger.debug("Cleaned %d old topn subs for %s [%s]", removed, video_path.name, lang_code)
@@ -82,7 +102,7 @@ def process_video(video_path: Path, config: Config, downloads_remaining: int | N
     return total_downloaded
 
 
-def scan(paths: list[str | Path], config: Config) -> dict[str, int]:
+def scan(paths: list[str | Path], config: Config, force: bool = False) -> dict[str, int]:
     """Scan paths and process all videos found.
 
     Returns a summary dict with counts.
@@ -99,7 +119,7 @@ def scan(paths: list[str | Path], config: Config) -> dict[str, int]:
     downloads_remaining = config.max_downloads_per_cycle if config.max_downloads_per_cycle > 0 else None
 
     for video_path in videos:
-        count = process_video(video_path, config, downloads_remaining)
+        count = process_video(video_path, config, downloads_remaining, force=force)
         total_downloaded += count
         total_processed += 1
 
