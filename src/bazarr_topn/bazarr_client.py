@@ -65,7 +65,7 @@ class BazarrClient:
         return data.get("data", [])
 
     def get_episodes(self, series_id: int) -> list[MediaItem]:
-        data = self._get("/episodes", params={"seriesid": series_id})
+        data = self._get("/episodes", params={"seriesid[]": series_id})
         items = []
         for ep in data.get("data", []):
             items.append(
