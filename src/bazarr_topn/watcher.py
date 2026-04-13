@@ -12,7 +12,7 @@ from watchdog.observers import Observer
 
 from bazarr_topn.config import Config
 from bazarr_topn.scanner import VIDEO_EXTENSIONS, process_video
-from bazarr_topn.subtitle_finder import configure_cache
+from bazarr_topn.subtitle_finder import configure_cache, create_pool
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 class VideoHandler(FileSystemEventHandler):
     """Handles new video file events with a cooldown to avoid processing incomplete files."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, pool) -> None:
         self.config = config
+        self.pool = pool
         self._pending: dict[str, float] = {}
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
@@ -55,7 +56,7 @@ class VideoHandler(FileSystemEventHandler):
             if video_path.exists():
                 logger.info("Watch: processing %s", video_path.name)
                 try:
-                    process_video(video_path, self.config)
+                    process_video(video_path, self.config, self.pool)
                 except Exception:
                     logger.exception("Watch: failed to process %s", video_path.name)
 
@@ -82,7 +83,11 @@ def watch(config: Config) -> None:
         logger.error("No watch_paths configured")
         return
 
-    handler = VideoHandler(config)
+    # Single ProviderPool for the entire watch session — one login, reused.
+    pool = create_pool(config)
+    pool.initialize()
+
+    handler = VideoHandler(config, pool)
     observer = Observer()
 
     for watch_path in paths:
@@ -104,3 +109,4 @@ def watch(config: Config) -> None:
         observer.stop()
 
     observer.join()
+    pool.terminate()

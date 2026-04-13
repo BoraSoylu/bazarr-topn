@@ -6,10 +6,11 @@ import logging
 from pathlib import Path
 
 from babelfish import Language
+from subliminal.core import ProviderPool
 
 from bazarr_topn.config import Config
 from bazarr_topn.naming import clean_existing_topn, existing_topn_subs
-from bazarr_topn.subtitle_finder import configure_cache, download_top_n, scan_video
+from bazarr_topn.subtitle_finder import configure_cache, create_pool, download_top_n, scan_video
 from bazarr_topn.sync import sync_batch
 
 logger = logging.getLogger(__name__)
@@ -41,12 +42,13 @@ def find_videos(paths: list[str | Path]) -> list[Path]:
 def process_video(
     video_path: Path,
     config: Config,
+    pool: ProviderPool,
     downloads_remaining: int | None = None,
     force: bool = False,
 ) -> int:
     """Process a single video: find, download, and optionally sync subtitles.
 
-    Returns the number of subtitles downloaded.
+    Returns the number of subtitles downloaded, or -1 if skipped.
     """
     # Skip if all languages already have topn subs (unless --force)
     if not force:
@@ -89,7 +91,7 @@ def process_video(
                 logger.info("  Download limit reached, stopping")
                 break
 
-        saved = download_top_n(video, video_path, language, config, per_lang_remaining)
+        saved = download_top_n(video, video_path, language, config, pool, per_lang_remaining)
         total_downloaded += len(saved)
         all_saved.extend(saved)
 
@@ -118,25 +120,28 @@ def scan(paths: list[str | Path], config: Config, force: bool = False) -> dict[s
 
     downloads_remaining = config.max_downloads_per_cycle if config.max_downloads_per_cycle > 0 else None
 
-    for video_path in videos:
-        count = process_video(video_path, config, downloads_remaining, force=force)
-        if count == -1:
-            # Skipped — already has topn subs
-            total_skipped_existing += 1
-            continue
-        total_downloaded += count
-        total_processed += 1
+    # Single ProviderPool for the entire scan — one login, reused across all videos.
+    # OpenSubtitles JWT is valid for 24h, so this avoids hitting the 5 login/IP limit.
+    with create_pool(config) as pool:
+        for video_path in videos:
+            count = process_video(video_path, config, pool, downloads_remaining, force=force)
+            if count == -1:
+                # Skipped — already has topn subs
+                total_skipped_existing += 1
+                continue
+            total_downloaded += count
+            total_processed += 1
 
-        if downloads_remaining is not None:
-            downloads_remaining -= count
-            if downloads_remaining <= 0:
-                total_skipped_limit = len(videos) - total_processed - total_skipped_existing
-                logger.warning(
-                    "Download limit reached after %d files (%d skipped)",
-                    total_processed,
-                    total_skipped_limit,
-                )
-                break
+            if downloads_remaining is not None:
+                downloads_remaining -= count
+                if downloads_remaining <= 0:
+                    total_skipped_limit = len(videos) - total_processed - total_skipped_existing
+                    logger.warning(
+                        "Download limit reached after %d files (%d skipped)",
+                        total_processed,
+                        total_skipped_limit,
+                    )
+                    break
 
     if total_skipped_existing:
         logger.info("Skipped %d videos with existing topn subs", total_skipped_existing)
