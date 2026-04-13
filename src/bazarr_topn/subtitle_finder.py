@@ -118,6 +118,8 @@ def download_top_n(
     """
     lang_str = str(language)
 
+    if config.search_delay > 0:
+        time.sleep(config.search_delay)
     logger.info("  Searching subtitles [%s]...", lang_str)
     candidates = find_subtitles(video, language, config)
 

@@ -32,6 +32,12 @@ max_downloads_per_cycle: 0
 # refuses re-authentication for a while. Set to 0 to disable (not recommended).
 download_delay: 1.5
 
+# Delay in seconds before each subtitle search (default: 0.5).
+# Each search triggers ~9 API calls (3 pages × 3 criteria). Without a delay
+# between searches, a large library scan fires hundreds of API calls in
+# rapid succession, triggering OpenSubtitles' anti-abuse block.
+search_delay: 0.5
+
 # Subtitle file naming pattern.
 # Available variables: {video_stem}, {lang}, {rank}
 # Rank starts at 2 (rank 1 is Bazarr's subtitle).
