@@ -26,17 +26,20 @@ min_score: 30
 # With OpenSubtitles VIP, set to 0.
 max_downloads_per_cycle: 0
 
-# Delay in seconds between subtitle downloads (default: 1.5).
+# Delay in seconds between subtitle downloads (default: 5.0).
 # Prevents OpenSubtitles from killing your session due to rapid requests.
 # Without this, the API drops your session after ~100 rapid downloads and
 # refuses re-authentication for a while. Set to 0 to disable (not recommended).
-download_delay: 1.5
+# Speed doesn't matter: the daily download quota resets every 24h, so a slow
+# batch that finishes within a day has the same throughput as a fast one.
+download_delay: 5.0
 
-# Delay in seconds before each subtitle search (default: 0.5).
+# Delay in seconds before each subtitle search (default: 3.0).
 # Each search triggers ~9 API calls (3 pages × 3 criteria). Without a delay
 # between searches, a large library scan fires hundreds of API calls in
-# rapid succession, triggering OpenSubtitles' anti-abuse block.
-search_delay: 0.5
+# rapid succession, triggering OpenSubtitles' anti-abuse block — which can
+# get your API consumer administratively disabled, not just rate-limited.
+search_delay: 3.0
 
 # Subtitle file naming pattern.
 # Available variables: {video_stem}, {lang}, {rank}
