@@ -79,6 +79,7 @@ class Config:
     min_score: int = 30
     max_downloads_per_cycle: int = 0
     naming_pattern: str = "{video_stem}.{lang}.topn-{rank}.srt"
+    download_delay: float = 1.5
     providers: list[ProviderConfig] = field(default_factory=list)
     ffsubsync: FfsubsyncConfig = field(default_factory=FfsubsyncConfig)
     watch_paths: list[str] = field(default_factory=list)
@@ -139,6 +140,7 @@ class Config:
             min_score=data.get("min_score", 30),
             max_downloads_per_cycle=data.get("max_downloads_per_cycle", 0),
             naming_pattern=data.get("naming_pattern", "{video_stem}.{lang}.topn-{rank}.srt"),
+            download_delay=data.get("download_delay", 1.5),
             providers=providers,
             ffsubsync=ffsubsync,
             path_mappings=data.get("path_mappings", []),

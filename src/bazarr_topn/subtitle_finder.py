@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -150,6 +151,8 @@ def download_top_n(
     ) as pool:
         for i, scored in enumerate(candidates):
             rank = i + 2  # rank 1 = Bazarr's subtitle
+            if i > 0 and config.download_delay > 0:
+                time.sleep(config.download_delay)
             try:
                 pool.download_subtitle(scored.subtitle)
                 if scored.subtitle.content is None:

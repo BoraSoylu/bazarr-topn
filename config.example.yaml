@@ -26,6 +26,12 @@ min_score: 30
 # With OpenSubtitles VIP, set to 0.
 max_downloads_per_cycle: 0
 
+# Delay in seconds between subtitle downloads (default: 1.5).
+# Prevents OpenSubtitles from killing your session due to rapid requests.
+# Without this, the API drops your session after ~100 rapid downloads and
+# refuses re-authentication for a while. Set to 0 to disable (not recommended).
+download_delay: 1.5
+
 # Subtitle file naming pattern.
 # Available variables: {video_stem}, {lang}, {rank}
 # Rank starts at 2 (rank 1 is Bazarr's subtitle).
