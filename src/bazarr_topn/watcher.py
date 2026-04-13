@@ -83,30 +83,31 @@ def watch(config: Config) -> None:
         logger.error("No watch_paths configured")
         return
 
-    # Single ProviderPool for the entire watch session — one login, reused.
-    pool = create_pool(config)
-    pool.initialize()
+    # Single ProviderPool for the entire watch session — one login, reused
+    # across every video event. Use as a context manager to match scanner.py;
+    # subliminal's ProviderPool auto-initializes on __enter__ and terminates
+    # on __exit__. Calling .initialize() directly raises AttributeError on
+    # current subliminal versions.
+    with create_pool(config) as pool:
+        handler = VideoHandler(config, pool)
+        observer = Observer()
 
-    handler = VideoHandler(config, pool)
-    observer = Observer()
+        for watch_path in paths:
+            p = Path(watch_path)
+            if not p.is_dir():
+                logger.warning("Watch path does not exist or is not a directory: %s", watch_path)
+                continue
+            observer.schedule(handler, str(p), recursive=True)
+            logger.info("Watching: %s", watch_path)
 
-    for watch_path in paths:
-        p = Path(watch_path)
-        if not p.is_dir():
-            logger.warning("Watch path does not exist or is not a directory: %s", watch_path)
-            continue
-        observer.schedule(handler, str(p), recursive=True)
-        logger.info("Watching: %s", watch_path)
+        observer.start()
+        logger.info("Watch mode started. Press Ctrl+C to stop.")
 
-    observer.start()
-    logger.info("Watch mode started. Press Ctrl+C to stop.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Stopping watch mode...")
+            observer.stop()
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Stopping watch mode...")
-        observer.stop()
-
-    observer.join()
-    pool.terminate()
+        observer.join()
