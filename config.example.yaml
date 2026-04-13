@@ -49,9 +49,6 @@ providers:
   - name: opensubtitlescom
     username: "${OPENSUBTITLES_USERNAME}"
     password: "${OPENSUBTITLES_PASSWORD}"
-    # API key from https://www.opensubtitles.com/en/consumers
-    # Optional but recommended — the default shared key has stricter rate limits.
-    # apikey: "${OPENSUBTITLES_API_KEY}"
     # Max API result pages to fetch per search criterion (default: 3).
     # Each page returns ~20 results. With 2-3 search criteria per video,
     # 3 pages = ~180 candidates total — more than enough for top_n=10.

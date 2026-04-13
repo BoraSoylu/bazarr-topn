@@ -36,12 +36,14 @@ def _expand_recursive(obj: Any) -> Any:
     return obj
 
 
+_OPENSUBTITLES_PROVIDERS = frozenset({"opensubtitlescom", "opensubtitles"})
+
+
 @dataclass
 class ProviderConfig:
     name: str
     username: str | None = None
     password: str | None = None
-    apikey: str | None = None
     max_result_pages: int = 3
 
     def to_subliminal_config(self) -> dict[str, Any]:
@@ -50,12 +52,11 @@ class ProviderConfig:
             cfg["username"] = self.username
         if self.password:
             cfg["password"] = self.password
-        # OpenSubtitles-specific params — safe because provider_configs is
-        # keyed by provider name, subliminal only passes each to its own provider
-        if self.apikey:
-            cfg["apikey"] = self.apikey
-        if self.max_result_pages > 0:
-            cfg["max_result_pages"] = self.max_result_pages
+        # Only pass OpenSubtitles-specific params to OpenSubtitles providers.
+        # Other providers (Podnapisi, etc.) will TypeError on unknown kwargs.
+        if self.name in _OPENSUBTITLES_PROVIDERS:
+            if self.max_result_pages > 0:
+                cfg["max_result_pages"] = self.max_result_pages
         return cfg
 
 
@@ -124,7 +125,6 @@ class Config:
                     name=p["name"],
                     username=p.get("username"),
                     password=p.get("password"),
-                    apikey=p.get("apikey"),
                     max_result_pages=p.get("max_result_pages", 3),
                 )
             )

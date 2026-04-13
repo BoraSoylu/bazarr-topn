@@ -58,7 +58,9 @@ def scan_video(video_path: str | Path) -> Video:
     from subliminal import scan_video as _scan
 
     video = _scan(str(video_path))
-    refine(video)
+    # Skip omdb refiner — subliminal's built-in OMDB API key is expired,
+    # causing 401 tracebacks on every video. tmdb provides the same metadata.
+    refine(video, refiners=("hash", "metadata", "tmdb", "tvdb"))
     logger.debug(
         "Scanned %s: title=%r year=%s imdb_id=%s",
         video_path,
