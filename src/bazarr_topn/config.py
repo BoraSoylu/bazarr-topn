@@ -56,7 +56,7 @@ class ProviderConfig:
 
 @dataclass
 class FfsubsyncConfig:
-    enabled: bool = True
+    enabled: bool = False
     gss: bool = True
     vad: str = "silero"
     max_offset_seconds: int = 600
@@ -123,7 +123,7 @@ class Config:
 
         ffs_raw = data.get("ffsubsync", {})
         ffsubsync = FfsubsyncConfig(
-            enabled=ffs_raw.get("enabled", True),
+            enabled=ffs_raw.get("enabled", False),
             gss=ffs_raw.get("gss", True),
             vad=ffs_raw.get("vad", "silero"),
             max_offset_seconds=ffs_raw.get("max_offset_seconds", 600),
