@@ -87,10 +87,13 @@ class Config:
     naming_pattern: str = "{video_stem}.{lang}.topn-{rank}.srt"
     download_delay: float = 5.0
     search_delay: float = 3.0
+    rate_limit_retries: int = 2
+    rate_limit_initial_backoff: float = 60.0
     providers: list[ProviderConfig] = field(default_factory=list)
     ffsubsync: FfsubsyncConfig = field(default_factory=FfsubsyncConfig)
     watch_paths: list[str] = field(default_factory=list)
     watch_cooldown: int = 30
+    watch_cold_start_scan: bool = True
     path_mappings: list[dict[str, str]] = field(default_factory=list)
     log_level: str = "INFO"
     log_file: str | None = None
@@ -149,11 +152,14 @@ class Config:
             naming_pattern=data.get("naming_pattern", "{video_stem}.{lang}.topn-{rank}.srt"),
             download_delay=data.get("download_delay", 5.0),
             search_delay=data.get("search_delay", 3.0),
+            rate_limit_retries=data.get("rate_limit_retries", 2),
+            rate_limit_initial_backoff=data.get("rate_limit_initial_backoff", 60.0),
             providers=providers,
             ffsubsync=ffsubsync,
             path_mappings=data.get("path_mappings", []),
             watch_paths=data.get("watch_paths", []),
             watch_cooldown=data.get("watch_cooldown", 30),
+            watch_cold_start_scan=data.get("watch_cold_start_scan", True),
             log_level=data.get("log_level", "INFO"),
             log_file=data.get("log_file"),
         )

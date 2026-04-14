@@ -75,12 +75,36 @@ def find_subtitles(
     video: Video,
     language: Language,
     pool: ProviderPool,
+    config: Config | None = None,
 ) -> list[ScoredSubtitle]:
     """Find and score all available subtitles for a video+language.
 
+    If the pool discards providers mid-call (typically OpenSubtitles
+    "Too Many Requests"), we sleep with exponential backoff, un-discard
+    the provider, and retry up to `config.rate_limit_retries` times.
+
     Returns subtitles sorted by score descending.
     """
-    raw_subs = pool.list_subtitles(video, {language})
+    retries = config.rate_limit_retries if config is not None else 0
+    backoff = config.rate_limit_initial_backoff if config is not None else 0.0
+
+    raw_subs: list = []
+    for attempt in range(retries + 1):
+        before = set(pool.discarded_providers)
+        raw_subs = pool.list_subtitles(video, {language})
+        newly_discarded = set(pool.discarded_providers) - before
+        if not newly_discarded or attempt >= retries:
+            break
+        sleep_s = backoff * (2 ** attempt)
+        logger.warning(
+            "Providers %s discarded during search (likely rate-limited). "
+            "Sleeping %.0fs before retry %d/%d",
+            sorted(newly_discarded), sleep_s, attempt + 1, retries,
+        )
+        if sleep_s > 0:
+            time.sleep(sleep_s)
+        for p in newly_discarded:
+            pool.discarded_providers.discard(p)
 
     scored: list[ScoredSubtitle] = []
     for sub in raw_subs:
@@ -98,6 +122,41 @@ def find_subtitles(
 
     scored.sort(key=lambda s: s.score, reverse=True)
     return scored
+
+
+def _download_with_retry(
+    pool: ProviderPool,
+    subtitle: Subtitle,
+    retries: int,
+    initial_backoff: float,
+) -> bool:
+    """Download a single subtitle, retrying if the pool discards its provider.
+
+    Subliminal's ProviderPool catches any exception from a provider's
+    download_subtitle and adds the provider to `discarded_providers`,
+    which poisons every subsequent call for the pool's lifetime. For
+    OpenSubtitles 429s this collapses a whole scan after the first rate
+    limit hit. We detect the discard, clear it, sleep, and retry.
+    """
+    for attempt in range(retries + 1):
+        before = set(pool.discarded_providers)
+        pool.download_subtitle(subtitle)
+        if subtitle.content is not None:
+            return True
+        newly_discarded = set(pool.discarded_providers) - before
+        if not newly_discarded or attempt >= retries:
+            return False
+        sleep_s = initial_backoff * (2 ** attempt)
+        logger.warning(
+            "Provider %s discarded on download (likely rate-limited). "
+            "Sleeping %.0fs before retry %d/%d",
+            subtitle.provider_name, sleep_s, attempt + 1, retries,
+        )
+        if sleep_s > 0:
+            time.sleep(sleep_s)
+        for p in newly_discarded:
+            pool.discarded_providers.discard(p)
+    return False
 
 
 def download_top_n(
@@ -126,7 +185,7 @@ def download_top_n(
     if config.search_delay > 0:
         time.sleep(config.search_delay)
     logger.info("  Searching subtitles [%s]...", lang_str)
-    candidates = find_subtitles(video, language, pool)
+    candidates = find_subtitles(video, language, pool, config=config)
 
     # Filter by minimum score
     unfiltered_count = len(candidates)
@@ -155,8 +214,13 @@ def download_top_n(
         if i > 0 and config.download_delay > 0:
             time.sleep(config.download_delay)
         try:
-            pool.download_subtitle(scored.subtitle)
-            if scored.subtitle.content is None:
+            ok = _download_with_retry(
+                pool,
+                scored.subtitle,
+                retries=config.rate_limit_retries,
+                initial_backoff=config.rate_limit_initial_backoff,
+            )
+            if not ok or scored.subtitle.content is None:
                 logger.debug("Empty subtitle content for rank %d, skipping", rank)
                 skipped += 1
                 continue

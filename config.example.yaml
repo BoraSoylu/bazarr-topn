@@ -41,6 +41,15 @@ download_delay: 5.0
 # get your API consumer administratively disabled, not just rate-limited.
 search_delay: 3.0
 
+# Rate-limit retry behavior. Subliminal's ProviderPool discards a provider
+# permanently on any exception during search or download — including
+# OpenSubtitles' "Too Many Requests". That means one 429 mid-scan silently
+# breaks every subsequent video in the batch. We detect the discard, clear
+# it, sleep, and retry. Backoff doubles each attempt (60s → 120s → ...).
+# Set retries to 0 to disable.
+rate_limit_retries: 2
+rate_limit_initial_backoff: 60.0
+
 # Subtitle file naming pattern.
 # Available variables: {video_stem}, {lang}, {rank}
 # Rank starts at 2 (rank 1 is Bazarr's subtitle).
@@ -121,6 +130,14 @@ watch_paths:
 # Cooldown in seconds after a file event before processing.
 # Prevents processing incomplete downloads.
 watch_cooldown: 30
+
+# Cold-start catch-up scan. Inotify only fires for future events, so any
+# video files present before the watcher starts are invisible to it
+# (e.g. files dropped in while the service was down, or during a redeploy
+# gap). On startup we do a single pass over watch_paths to process any
+# videos missing topn subs. Cheap on subsequent restarts — videos that
+# already have topn subs are skipped via an on-disk check.
+watch_cold_start_scan: true
 
 # Logging level for console output: DEBUG, INFO, WARNING, ERROR
 # DEBUG shows all internal details; INFO (default) shows clean progress output.

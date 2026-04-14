@@ -7,11 +7,12 @@ import threading
 import time
 from pathlib import Path
 
+from subliminal.core import ProviderPool
 from watchdog.events import FileCreatedEvent, FileMovedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from bazarr_topn.config import Config
-from bazarr_topn.scanner import VIDEO_EXTENSIONS, process_video
+from bazarr_topn.scanner import VIDEO_EXTENSIONS, find_videos, process_video
 from bazarr_topn.subtitle_finder import configure_cache, create_pool
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,48 @@ class VideoHandler(FileSystemEventHandler):
             self._schedule(event.dest_path)
 
 
+def cold_start_scan(config: Config, pool: ProviderPool) -> dict[str, int]:
+    """Process existing videos in watch_paths that are missing topn subs.
+
+    Inotify only fires for future events, so any files present before the
+    watcher starts are invisible to it. A single pass over `watch_paths`
+    at startup catches those; process_video's own skip-if-already-has-topn
+    check makes this cheap on subsequent restarts.
+    """
+    watch_dirs = [Path(p) for p in config.watch_paths if Path(p).is_dir()]
+    if not watch_dirs:
+        return {"videos_processed": 0, "videos_skipped": 0, "subtitles_downloaded": 0}
+
+    logger.info("Cold-start catch-up scan over %d watch path(s)...", len(watch_dirs))
+    videos = find_videos(list(watch_dirs))
+    logger.info("Cold-start: found %d video files", len(videos))
+
+    processed = 0
+    skipped = 0
+    downloaded = 0
+    for video_path in videos:
+        try:
+            count = process_video(video_path, config, pool)
+        except Exception:
+            logger.exception("Cold-start: failed to process %s", video_path.name)
+            continue
+        if count == -1:
+            skipped += 1
+        else:
+            processed += 1
+            downloaded += count
+
+    logger.info(
+        "Cold-start scan done: %d processed, %d skipped (already had topn), %d subtitles downloaded",
+        processed, skipped, downloaded,
+    )
+    return {
+        "videos_processed": processed,
+        "videos_skipped": skipped,
+        "subtitles_downloaded": downloaded,
+    }
+
+
 def watch(config: Config) -> None:
     """Start watching configured paths for new video files. Blocks until interrupted."""
     configure_cache()
@@ -89,6 +132,9 @@ def watch(config: Config) -> None:
     # on __exit__. Calling .initialize() directly raises AttributeError on
     # current subliminal versions.
     with create_pool(config) as pool:
+        if config.watch_cold_start_scan:
+            cold_start_scan(config, pool)
+
         handler = VideoHandler(config, pool)
         observer = Observer()
 
