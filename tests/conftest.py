@@ -26,6 +26,9 @@ def default_config() -> Config:
         top_n=3,
         min_score=0,
         naming_pattern="{video_stem}.{lang}.topn-{rank}.srt",
+        topn_recheck_days=30,
+        topn_sidecar_enabled=True,
+        max_candidates_tried=50,
     )
 
 

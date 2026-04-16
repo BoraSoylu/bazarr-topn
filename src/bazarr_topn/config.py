@@ -94,6 +94,9 @@ class Config:
     watch_paths: list[str] = field(default_factory=list)
     watch_cooldown: int = 30
     watch_cold_start_scan: bool = True
+    topn_recheck_days: int = 30
+    topn_sidecar_enabled: bool = True
+    max_candidates_tried: int = 50
     path_mappings: list[dict[str, str]] = field(default_factory=list)
     log_level: str = "INFO"
     log_file: str | None = None
@@ -160,6 +163,9 @@ class Config:
             watch_paths=data.get("watch_paths", []),
             watch_cooldown=data.get("watch_cooldown", 30),
             watch_cold_start_scan=data.get("watch_cold_start_scan", True),
+            topn_recheck_days=data.get("topn_recheck_days", 30),
+            topn_sidecar_enabled=data.get("topn_sidecar_enabled", True),
+            max_candidates_tried=data.get("max_candidates_tried", 50),
             log_level=data.get("log_level", "INFO"),
             log_file=data.get("log_file"),
         )

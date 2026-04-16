@@ -73,6 +73,20 @@ class TestConfigDefaults:
         assert config.bazarr.url == "http://localhost:6767"
 
 
+class TestNewConfigDefaults:
+    def test_topn_recheck_days_default(self) -> None:
+        config = Config()
+        assert config.topn_recheck_days == 30
+
+    def test_topn_sidecar_enabled_default(self) -> None:
+        config = Config()
+        assert config.topn_sidecar_enabled is True
+
+    def test_max_candidates_tried_default(self) -> None:
+        config = Config()
+        assert config.max_candidates_tried == 50
+
+
 class TestPathMappings:
     def test_no_mappings(self) -> None:
         config = Config()
