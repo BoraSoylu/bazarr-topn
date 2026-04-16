@@ -9,7 +9,8 @@ from babelfish import Language
 from subliminal.core import ProviderPool
 
 from bazarr_topn.config import Config
-from bazarr_topn.naming import clean_existing_topn, existing_topn_subs
+from bazarr_topn.naming import clean_existing_topn
+from bazarr_topn.sidecar import SidecarData, is_topn_done, write_sidecar
 from bazarr_topn.subtitle_finder import configure_cache, create_pool, download_top_n, scan_video
 from bazarr_topn.sync import sync_batch
 
@@ -50,13 +51,13 @@ def process_video(
 
     Returns the number of subtitles downloaded, or -1 if skipped.
     """
-    # Skip if all languages already have topn subs (unless --force)
+    # Skip if all languages are done (unless --force)
     if not force:
-        langs_with_subs = [
+        langs_done = [
             lang for lang in config.languages
-            if existing_topn_subs(video_path, lang, config.naming_pattern)
+            if is_topn_done(video_path, lang, config)
         ]
-        if len(langs_with_subs) == len(config.languages):
+        if len(langs_done) == len(config.languages):
             return -1  # signal: skipped
 
     logger.info("%s", video_path.name)
@@ -74,15 +75,16 @@ def process_video(
     for lang_code in config.languages:
         language = Language.fromalpha2(lang_code)
 
-        # Skip this language if it already has topn subs (unless --force)
-        if not force and existing_topn_subs(video_path, lang_code, config.naming_pattern):
-            logger.debug("  Skipping [%s] — already has topn subs", lang_code)
+        # Skip this language if already done (unless --force)
+        if not force and is_topn_done(video_path, lang_code, config):
+            logger.debug("  Skipping [%s] — sidecar indicates done", lang_code)
             continue
 
-        # Clean previous topn subs for this video+lang (only reached with --force)
-        removed = clean_existing_topn(video_path, lang_code, config.naming_pattern)
-        if removed:
-            logger.debug("Cleaned %d old topn subs for %s [%s]", removed, video_path.name, lang_code)
+        # Clean previous topn subs for this video+lang when --force
+        if force:
+            removed = clean_existing_topn(video_path, lang_code, config.naming_pattern)
+            if removed:
+                logger.debug("Cleaned %d old topn subs for %s [%s]", removed, video_path.name, lang_code)
 
         per_lang_remaining = None
         if downloads_remaining is not None:
@@ -94,6 +96,16 @@ def process_video(
         result = download_top_n(video, video_path, language, config, pool, per_lang_remaining)
         total_downloaded += len(result.saved_paths)
         all_saved.extend(result.saved_paths)
+
+        # Write sidecar regardless of outcome
+        if config.topn_sidecar_enabled:
+            sidecar_data = SidecarData(
+                target=config.top_n,
+                saved=len(result.saved_paths),
+                available=result.available_count,
+                clean=result.clean,
+            )
+            write_sidecar(video_path, lang_code, sidecar_data)
 
     # Sync all subtitles in one batch — extracts speech from video once
     if all_saved and config.ffsubsync.enabled:
