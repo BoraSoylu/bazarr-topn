@@ -97,3 +97,19 @@ class TestCleanExisting:
             video, "en", "{video_stem}.{lang}.topn-{rank}.srt"
         )
         assert count == 0
+
+
+class TestCleanExistingWithSidecar:
+    def test_removes_sidecar_alongside_subs(self, tmp_path: Path) -> None:
+        from bazarr_topn.sidecar import sidecar_path, write_sidecar, SidecarData
+
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        (tmp_path / "Movie.en.topn-02.srt").write_text("sub")
+        data = SidecarData(target=10, saved=1, available=5, clean=True)
+        write_sidecar(video, "en", data)
+        assert sidecar_path(video, "en").exists()
+
+        count = clean_existing_topn(video, "en", "{video_stem}.{lang}.topn-{rank}.srt")
+        assert count == 1  # only .srt files counted
+        assert not sidecar_path(video, "en").exists()  # sidecar also gone

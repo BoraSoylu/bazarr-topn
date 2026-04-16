@@ -36,8 +36,11 @@ def existing_topn_subs(video_path: str | Path, lang: str, pattern: str) -> list[
 
 
 def clean_existing_topn(video_path: str | Path, lang: str, pattern: str) -> int:
-    """Remove existing topn subtitle files. Returns count of files removed."""
+    """Remove existing topn subtitle files and sidecar. Returns count of sub files removed."""
+    from bazarr_topn.sidecar import delete_sidecar
+
     existing = existing_topn_subs(video_path, lang, pattern)
     for p in existing:
         p.unlink()
+    delete_sidecar(video_path, lang)
     return len(existing)

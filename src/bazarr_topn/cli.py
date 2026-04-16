@@ -103,8 +103,9 @@ def main(ctx: click.Context, config_path: str | None, log_level: str | None) -> 
 @click.argument("paths", nargs=-1, type=click.Path(exists=True))
 @click.option("--all", "scan_all", is_flag=True, help="Full library rescan using Bazarr inventory")
 @click.option("--force", is_flag=True, help="Re-download even if topn subs already exist")
+@click.option("--rescan-stale", is_flag=True, help="Reprocess videos with sidecars older than topn_recheck_days")
 @click.pass_context
-def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool, force: bool) -> None:
+def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool, force: bool, rescan_stale: bool) -> None:
     """Scan files or directories for subtitles.
 
     Skips videos that already have topn subtitles. Use --force to re-download.
@@ -132,6 +133,9 @@ def scan(ctx: click.Context, paths: tuple[str, ...], scan_all: bool, force: bool
     else:
         click.echo("Error: provide paths or use --all", err=True)
         sys.exit(1)
+
+    if rescan_stale:
+        config.topn_recheck_days = 0  # treat all sidecars as stale
 
     result = do_scan(scan_paths, config, force=force)
     click.echo(
