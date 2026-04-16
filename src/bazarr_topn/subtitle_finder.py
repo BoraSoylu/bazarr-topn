@@ -48,6 +48,13 @@ class ScoredSubtitle:
     provider: str
 
 
+@dataclass
+class DownloadResult:
+    saved_paths: list[Path]
+    clean: bool
+    available_count: int
+
+
 def scan_video(video_path: str | Path) -> Video:
     """Scan a video file and return a subliminal Video object.
 
@@ -166,19 +173,15 @@ def download_top_n(
     config: Config,
     pool: ProviderPool,
     downloads_remaining: int | None = None,
-) -> list[Path]:
-    """Download the top N subtitles for a video, returning paths of saved files.
+) -> DownloadResult:
+    """Download the top N subtitles for a video, iterating deeper on failures.
 
-    Args:
-        video: Subliminal Video object.
-        video_path: Path to the video file on disk.
-        language: Target language.
-        config: Application config.
-        pool: Shared ProviderPool (single login, reused across videos).
-        downloads_remaining: If set, cap downloads at this number.
+    Iterates through candidates beyond top_n when downloads fail (empty content,
+    invalid data). Stops when saved_count reaches the target or all candidates
+    (up to max_candidates_tried) are exhausted.
 
     Returns:
-        List of paths to downloaded subtitle files.
+        DownloadResult with saved paths, clean flag, and available count.
     """
     lang_str = str(language)
 
@@ -198,24 +201,34 @@ def download_top_n(
         else:
             logger.info("  No subtitles passed min_score=%d for [%s] (%d candidates filtered out)",
                          config.min_score, lang_str, unfiltered_count)
-        return []
+        return DownloadResult(saved_paths=[], clean=True, available_count=unfiltered_count)
 
-    # Cap at top_n (or downloads_remaining if lower)
-    limit = config.top_n
+    # Cap candidates at max_candidates_tried
+    max_try = config.max_candidates_tried
+    if max_try > 0 and len(candidates) > max_try:
+        candidates = candidates[:max_try]
+
+    # Target: how many we want to save
+    target = config.top_n
     if downloads_remaining is not None:
-        limit = min(limit, downloads_remaining)
-    candidates = candidates[:limit]
+        target = min(target, downloads_remaining)
 
-    logger.info("  Found %d candidates [%s], downloading %d...",
-                unfiltered_count, lang_str, len(candidates))
+    logger.info("  Found %d candidates [%s], downloading up to %d...",
+                unfiltered_count, lang_str, target)
 
     saved: list[Path] = []
-    skipped = 0
+    rank = 2  # rank 1 = Bazarr's subtitle
+    clean = True
+    attempted = 0
 
-    for i, scored in enumerate(candidates):
-        rank = i + 2  # rank 1 = Bazarr's subtitle
-        if i > 0 and config.download_delay > 0:
+    for scored in candidates:
+        if len(saved) >= target:
+            break
+
+        if attempted > 0 and config.download_delay > 0:
             time.sleep(config.download_delay)
+        attempted += 1
+
         try:
             ok = _download_with_retry(
                 pool,
@@ -224,8 +237,9 @@ def download_top_n(
                 initial_backoff=config.rate_limit_initial_backoff,
             )
             if not ok or scored.subtitle.content is None:
-                logger.debug("Empty subtitle content for rank %d, skipping", rank)
-                skipped += 1
+                logger.debug("Empty subtitle content for candidate (rank slot %d), trying deeper", rank)
+                if scored.subtitle.provider_name in pool.discarded_providers:
+                    clean = False
                 continue
 
             out_path = subtitle_path(
@@ -237,12 +251,17 @@ def download_top_n(
                 rank, scored.score, scored.provider, out_path.name,
             )
             saved.append(out_path)
+            rank += 1
         except Exception:
-            logger.debug("Failed to download rank %d subtitle", rank, exc_info=True)
-            skipped += 1
+            logger.debug("Failed to download candidate subtitle", exc_info=True)
+            continue
 
     logger.info("  Downloaded %d subtitles [%s]%s",
                 len(saved), lang_str,
-                f" ({skipped} skipped)" if skipped else "")
+                f" ({attempted - len(saved)} skipped)" if len(saved) < attempted else "")
 
-    return saved
+    return DownloadResult(
+        saved_paths=saved,
+        clean=clean,
+        available_count=unfiltered_count,
+    )

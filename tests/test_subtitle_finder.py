@@ -11,7 +11,7 @@ import pytest
 from babelfish import Language
 
 from bazarr_topn.config import Config
-from bazarr_topn.subtitle_finder import download_top_n, find_subtitles
+from bazarr_topn.subtitle_finder import DownloadResult, download_top_n, find_subtitles
 
 
 class FakeSubtitle:
@@ -121,7 +121,7 @@ class TestDownloadTopNRetry:
             fail_download_times=1,
             subtitles_to_return=[FakeSubtitle("opensubtitlescom")],
         )
-        saved = download_top_n(
+        result = download_top_n(
             MagicMock(),
             video_path,
             Language.fromalpha2("en"),
@@ -129,8 +129,8 @@ class TestDownloadTopNRetry:
             pool,
         )
         assert pool.download_calls == 2
-        assert len(saved) == 1
-        assert saved[0].exists()
+        assert len(result.saved_paths) == 1
+        assert result.saved_paths[0].exists()
 
     def test_download_gives_up_after_retries(
         self, tmp_path, no_delay_config: Config
@@ -141,7 +141,7 @@ class TestDownloadTopNRetry:
             fail_download_times=99,
             subtitles_to_return=[FakeSubtitle("opensubtitlescom")],
         )
-        saved = download_top_n(
+        result = download_top_n(
             MagicMock(),
             video_path,
             Language.fromalpha2("en"),
@@ -149,7 +149,7 @@ class TestDownloadTopNRetry:
             pool,
         )
         # All retries exhausted; no files saved
-        assert saved == []
+        assert result.saved_paths == []
         # initial + retries = 3 attempts for the single subtitle
         assert pool.download_calls == 3
 
@@ -165,11 +165,11 @@ class TestLogMessage:
         video_path.write_bytes(b"x")
         pool = FakePool(subtitles_to_return=[])
         with caplog.at_level(logging.INFO):
-            saved = download_top_n(
+            result = download_top_n(
                 MagicMock(), video_path, Language.fromalpha2("en"),
                 no_delay_config, pool,
             )
-        assert saved == []
+        assert result.saved_paths == []
         assert any("No candidates returned" in r.message for r in caplog.records)
         assert not any("filtered out" in r.message for r in caplog.records)
         assert not any("below min_score" in r.message for r in caplog.records)
@@ -191,10 +191,118 @@ class TestLogMessage:
             FakeSubtitle("opensubtitlescom"),
         ])
         with caplog.at_level(logging.INFO):
-            saved = download_top_n(
+            result = download_top_n(
                 MagicMock(), video_path, Language.fromalpha2("en"),
                 config, pool,
             )
-        assert saved == []
+        assert result.saved_paths == []
         assert any("filtered out" in r.message for r in caplog.records)
         assert any("2" in r.message and "filtered out" in r.message for r in caplog.records)
+
+
+class TestDeepCandidateIteration:
+    """Issue 2: iterate deeper into candidate list when subs come back invalid."""
+
+    def test_skips_none_content_tries_deeper(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        """If first candidates have None content, keep trying deeper ranks."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        subs = [
+            FakeSubtitle("opensubtitlescom", content=None),
+            FakeSubtitle("opensubtitlescom", content=None),
+            FakeSubtitle("opensubtitlescom", content=b"good1"),
+            FakeSubtitle("opensubtitlescom", content=b"good2"),
+            FakeSubtitle("opensubtitlescom", content=b"good3"),
+        ]
+        pool = FakePool(subtitles_to_return=subs)
+        # Override download to use scripted content (don't let FakePool reset content)
+        def scripted_download(subtitle):
+            pool.download_calls += 1
+            return subtitle.content is not None
+        pool.download_subtitle = scripted_download
+        pool.download_calls = 0
+
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+        assert isinstance(result, DownloadResult)
+        assert len(result.saved_paths) == 3  # top_n=3, got 3 valid
+        assert result.clean is True
+        assert result.available_count == 5
+
+    def test_returns_download_result(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(subtitles_to_return=[
+            FakeSubtitle("opensubtitlescom", content=b"data"),
+        ])
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+        assert isinstance(result, DownloadResult)
+        assert len(result.saved_paths) == 1
+        assert result.clean is True
+        assert result.available_count == 1
+
+    def test_clean_false_when_retry_exhausted(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(
+            fail_download_times=99,
+            subtitles_to_return=[FakeSubtitle("opensubtitlescom")],
+        )
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+        assert isinstance(result, DownloadResult)
+        assert result.saved_paths == []
+        assert result.clean is False
+
+    def test_max_candidates_tried_cap(self, tmp_path: Path) -> None:
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        subs = [FakeSubtitle("opensubtitlescom", content=None) for _ in range(10)]
+        pool = FakePool(subtitles_to_return=subs)
+        def scripted_download(subtitle):
+            pool.download_calls += 1
+            return subtitle.content is not None
+        pool.download_subtitle = scripted_download
+        pool.download_calls = 0
+
+        config = Config(
+            languages=["en"], top_n=3, min_score=0,
+            search_delay=0, download_delay=0,
+            rate_limit_initial_backoff=0, rate_limit_retries=0,
+            max_candidates_tried=5,
+        )
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            config, pool,
+        )
+        assert isinstance(result, DownloadResult)
+        assert result.saved_paths == []
+        assert pool.download_calls == 5
+
+    def test_zero_candidates_returns_clean_result(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(subtitles_to_return=[])
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+        assert isinstance(result, DownloadResult)
+        assert result.saved_paths == []
+        assert result.clean is True
+        assert result.available_count == 0

@@ -91,9 +91,9 @@ def process_video(
                 logger.info("  Download limit reached, stopping")
                 break
 
-        saved = download_top_n(video, video_path, language, config, pool, per_lang_remaining)
-        total_downloaded += len(saved)
-        all_saved.extend(saved)
+        result = download_top_n(video, video_path, language, config, pool, per_lang_remaining)
+        total_downloaded += len(result.saved_paths)
+        all_saved.extend(result.saved_paths)
 
     # Sync all subtitles in one batch — extracts speech from video once
     if all_saved and config.ffsubsync.enabled:
