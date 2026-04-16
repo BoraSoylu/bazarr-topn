@@ -254,6 +254,7 @@ def download_top_n(
             rank += 1
         except Exception:
             logger.debug("Failed to download candidate subtitle", exc_info=True)
+            clean = False
             continue
 
     logger.info("  Downloaded %d subtitles [%s]%s",
