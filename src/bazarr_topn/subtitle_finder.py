@@ -193,8 +193,11 @@ def download_top_n(
         candidates = [s for s in candidates if s.score >= config.min_score]
 
     if not candidates:
-        logger.info("  No subtitles found for [%s] (%d below min_score=%d)",
-                     lang_str, unfiltered_count, config.min_score)
+        if unfiltered_count == 0:
+            logger.info("  No candidates returned for [%s] from any provider", lang_str)
+        else:
+            logger.info("  No subtitles passed min_score=%d for [%s] (%d candidates filtered out)",
+                         config.min_score, lang_str, unfiltered_count)
         return []
 
     # Cap at top_n (or downloads_remaining if lower)

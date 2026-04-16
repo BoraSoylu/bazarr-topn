@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -41,7 +43,7 @@ class FakePool:
         self.fail_download_times = fail_download_times
         self.list_calls = 0
         self.download_calls = 0
-        self._subtitles = subtitles_to_return or [FakeSubtitle(provider)]
+        self._subtitles = [FakeSubtitle(provider)] if subtitles_to_return is None else subtitles_to_return
 
     def list_subtitles(self, video: Any, languages: set[Language]) -> list[FakeSubtitle]:
         self.list_calls += 1
@@ -150,3 +152,49 @@ class TestDownloadTopNRetry:
         assert saved == []
         # initial + retries = 3 attempts for the single subtitle
         assert pool.download_calls == 3
+
+
+class TestLogMessage:
+    """Issue 3: log message should distinguish 0-returned from N-filtered."""
+
+    def test_zero_candidates_returned(
+        self, tmp_path: Path, no_delay_config: Config, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When provider returns 0 candidates, say so clearly."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(subtitles_to_return=[])
+        with caplog.at_level(logging.INFO):
+            saved = download_top_n(
+                MagicMock(), video_path, Language.fromalpha2("en"),
+                no_delay_config, pool,
+            )
+        assert saved == []
+        assert any("No candidates returned" in r.message for r in caplog.records)
+        assert not any("filtered out" in r.message for r in caplog.records)
+        assert not any("below min_score" in r.message for r in caplog.records)
+
+    def test_all_filtered_by_min_score(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When candidates exist but all below min_score, say N filtered out."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        config = Config(
+            languages=["en"], top_n=3, min_score=50,
+            search_delay=0, download_delay=0,
+            rate_limit_initial_backoff=0, rate_limit_retries=0,
+            max_candidates_tried=50,
+        )
+        pool = FakePool(subtitles_to_return=[
+            FakeSubtitle("opensubtitlescom"),
+            FakeSubtitle("opensubtitlescom"),
+        ])
+        with caplog.at_level(logging.INFO):
+            saved = download_top_n(
+                MagicMock(), video_path, Language.fromalpha2("en"),
+                config, pool,
+            )
+        assert saved == []
+        assert any("filtered out" in r.message for r in caplog.records)
+        assert any("2" in r.message and "filtered out" in r.message for r in caplog.records)
