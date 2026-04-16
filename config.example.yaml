@@ -50,6 +50,24 @@ search_delay: 3.0
 rate_limit_retries: 2
 rate_limit_initial_backoff: 60.0
 
+# Sidecar metadata — tracks download state per video+language.
+# Enables smart skip logic: partial failures get retried, niche content
+# (fewer subs available than top_n) is recognized as complete, and
+# raising top_n later triggers re-download of upgraded targets.
+# Set to false to disable sidecars and fall back to always reprocessing.
+topn_sidecar_enabled: true
+
+# Re-check interval in days. Even "done" videos get another look
+# periodically in case new subtitles have been uploaded since.
+# Similar to Bazarr's 12h upgrade loop, but gentler cadence.
+topn_recheck_days: 30
+
+# Maximum candidates to try per video+language when downloading.
+# OpenSubtitles often returns broken/empty files. We iterate deeper
+# into the candidate list (beyond top_n) when downloads fail, up to
+# this cap. Set to 0 for unlimited (not recommended for large libraries).
+max_candidates_tried: 50
+
 # Subtitle file naming pattern.
 # Available variables: {video_stem}, {lang}, {rank}
 # Rank starts at 2 (rank 1 is Bazarr's subtitle).
