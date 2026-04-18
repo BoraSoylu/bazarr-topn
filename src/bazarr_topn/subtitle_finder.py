@@ -158,28 +158,25 @@ def find_subtitles(
 
     raw_subs: list = []
     for attempt in range(retries + 1):
-        before = set(pool.discarded_providers)
-        raw_subs = pool.list_subtitles(video, {language})
-        newly_discarded = set(pool.discarded_providers) - before
-        if not newly_discarded:
+        with _captured_subliminal_errors() as captured:
+            raw_subs = pool.list_subtitles(video, {language})
+        if not captured.had_errors:
             break
         if attempt >= retries:
-            # Exhausted retries with provider still being discarded — the
-            # search never completed. Signal so the caller writes search_ok=False.
+            # Subliminal swallowed at least one provider exception on every
+            # attempt. Signal up so the caller writes search_ok=False.
             raise SearchUnavailable(
-                f"Providers {sorted(newly_discarded)} stayed discarded after "
-                f"{retries + 1} attempts for language {language}"
+                f"subliminal reported errors during search for {language} "
+                f"after {retries + 1} attempts: {captured.first_error_message}"
             )
         sleep_s = backoff * (2 ** attempt)
         logger.warning(
-            "Providers %s discarded during search (likely rate-limited). "
-            "Sleeping %.0fs before retry %d/%d",
-            sorted(newly_discarded), sleep_s, attempt + 1, retries,
+            "Provider errors during search (likely rate-limited). "
+            "Sleeping %.0fs before retry %d/%d. First error: %s",
+            sleep_s, attempt + 1, retries, captured.first_error_message,
         )
         if sleep_s > 0:
             time.sleep(sleep_s)
-        for p in newly_discarded:
-            pool.discarded_providers.discard(p)
 
     scored: list[ScoredSubtitle] = []
     for sub in raw_subs:

@@ -48,8 +48,14 @@ class FakePool:
     def list_subtitles(self, video: Any, languages: set[Language]) -> list[FakeSubtitle]:
         self.list_calls += 1
         if self.list_calls <= self.fail_list_times:
-            # Simulate subliminal's behavior: add to discarded set, return []
-            self.discarded_providers.add(self.provider)
+            # Match real subliminal: the generic `except Exception` branch in
+            # ProviderPool.list_subtitles_provider logs via handle_exception
+            # ("Unexpected error. Provider %s") at ERROR and returns []. It
+            # does NOT add the provider to discarded_providers; only
+            # DiscardingError takes that path.
+            logging.getLogger("subliminal.core").error(
+                "Unexpected error. Provider %s", self.provider,
+            )
             return []
         return list(self._subtitles)
 
@@ -89,15 +95,17 @@ class TestFindSubtitlesRetry:
         assert pool.list_calls == 1
         assert len(subs) == 1
 
-    def test_retries_after_discard(self, no_delay_config: Config) -> None:
+    def test_retries_after_logged_error(self, no_delay_config: Config) -> None:
+        """First attempt emits an error log; retry attempt succeeds and returns subs."""
         pool = FakePool(fail_list_times=1)
         subs = find_subtitles(
             MagicMock(), Language.fromalpha2("en"), pool, config=no_delay_config
         )
         assert pool.list_calls == 2
         assert len(subs) == 1
-        # Provider should have been cleared from discarded set after retry
-        assert "opensubtitlescom" not in pool.discarded_providers
+        # discarded_providers was never populated on the fail path
+        # (real subliminal doesn't discard on generic exceptions).
+        assert pool.discarded_providers == set()
 
     def test_gives_up_after_max_retries(self, no_delay_config: Config) -> None:
         from bazarr_topn.subtitle_finder import SearchUnavailable
