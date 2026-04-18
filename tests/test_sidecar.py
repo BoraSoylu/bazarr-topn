@@ -184,3 +184,32 @@ class TestSchemaV2:
         assert loaded is not None
         assert loaded.search_ok is False
         assert loaded.schema_version == 2
+
+
+class TestLegacyV1Read:
+    def test_v1_sidecar_reads_with_defaults(self, video: Path) -> None:
+        """Legacy file without schema_version / search_ok loads with defaults."""
+        raw = {
+            "target": 10,
+            "saved": 0,
+            "available": 0,
+            "clean": True,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        sidecar_path(video, "en").write_text(json.dumps(raw))
+        loaded = read_sidecar(video, "en")
+        assert loaded is not None
+        # Missing schema_version defaults to 1
+        assert loaded.schema_version == 1
+        # Missing search_ok defaults to False (legacy wrote clean=True on any result)
+        assert loaded.search_ok is False
+
+    def test_v2_sidecar_reads_cleanly(self, video: Path) -> None:
+        data = SidecarData(
+            target=10, saved=10, available=15, clean=True, search_ok=True,
+        )
+        write_sidecar(video, "en", data)
+        loaded = read_sidecar(video, "en")
+        assert loaded is not None
+        assert loaded.schema_version == 2
+        assert loaded.search_ok is True

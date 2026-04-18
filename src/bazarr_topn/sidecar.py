@@ -45,7 +45,12 @@ def write_sidecar(video_path: str | Path, lang: str, data: SidecarData) -> Path:
 
 
 def read_sidecar(video_path: str | Path, lang: str) -> SidecarData | None:
-    """Read sidecar JSON. Returns None if missing, corrupt, or incomplete."""
+    """Read sidecar JSON. Returns None if missing, corrupt, or missing v1 fields.
+
+    Tolerates missing v2-only fields (schema_version, search_ok): legacy v1
+    sidecars load with schema_version=1 and search_ok=False, which is_topn_done
+    will reject so they get rewritten on the next scan.
+    """
     path = sidecar_path(video_path, lang)
     if not path.exists():
         return None
@@ -61,6 +66,8 @@ def read_sidecar(video_path: str | Path, lang: str) -> SidecarData | None:
             available=raw["available"],
             clean=raw["clean"],
             completed_at=raw["completed_at"],
+            search_ok=raw.get("search_ok", False),
+            schema_version=raw.get("schema_version", 1),
         )
     except (json.JSONDecodeError, KeyError, TypeError):
         logger.debug("Corrupt sidecar %s, treating as absent", path.name)
