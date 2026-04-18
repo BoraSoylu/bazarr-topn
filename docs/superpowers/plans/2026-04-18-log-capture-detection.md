@@ -577,7 +577,7 @@ This task is pure verification.
 These are documented here so the plan is complete but are **not** tasks for an implementer subagent — the controller executes them after the branch merges to main:
 
 1. Merge `fix/log-capture-detection` to main locally (fast-forward), push to `origin/main`.
-2. On server: `cd /home/bora/bazarr-topn && git pull --ff-only`.
+2. On server: `cd <SERVER_REPO>/bazarr-topn && git pull --ff-only`.
 3. **Rescue:** delete the 12 v2 sidecars left over from the prior buggy run **before** starting any new scan:
    ```bash
    find /mnt/media -name "*.topn.json" -print0 \
@@ -591,10 +591,10 @@ These are documented here so the plan is complete but are **not** tasks for an i
 4. (Optional) Restart the watch service to pick up the new code in its long-running process: `sudo systemctl restart bazarr-topn.service`. The cron will pick up new code regardless on its next run.
 5. (Optional) Manually kick the backfill instead of waiting for the 02:17 cron:
    ```bash
-   set -a; source /opt/boracloud/bazarr-topn/.env; set +a
-   nohup /opt/boracloud/bazarr-topn/venv/bin/bazarr-topn \
-     -c /opt/boracloud/bazarr-topn/config.yaml scan --all \
-     >> /opt/boracloud/bazarr-topn/logs/scheduled-scan.log 2>&1 &
+   set -a; source <DEPLOY_DIR>/.env; set +a
+   nohup <DEPLOY_DIR>/venv/bin/bazarr-topn \
+     -c <DEPLOY_DIR>/config.yaml scan --all \
+     >> <DEPLOY_DIR>/logs/scheduled-scan.log 2>&1 &
    disown
    ```
 6. Tail the log and expect to see the new warning `Provider errors during search (likely rate-limited). Sleeping …` on rate-limit hits, and eventually `Search unavailable for [tr] (...); will retry next scan` on exhausted attempts.

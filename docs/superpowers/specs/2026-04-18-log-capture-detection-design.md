@@ -114,7 +114,7 @@ The `pool.discarded_providers.discard(...)` cleanup from the old retry loop is d
 
 ### 4. Config change: `topn_recheck_days: 30 → 3`
 
-`Config.topn_recheck_days: int = 3` in `src/bazarr_topn/config.py`. Update `config.example.yaml` and the BoraCloud installer (`BoraCloud/scripts/43-bazarr-topn.sh`) so the deployed config picks up the new default. The `topn_empty_recheck_days` tier discussed during brainstorming is dropped — one knob, applies uniformly.
+`Config.topn_recheck_days: int = 3` in `src/bazarr_topn/config.py`. Update `config.example.yaml` (any external deployment installer should pick up the change by re-reading the example, or by setting an explicit `topn_recheck_days` value in its own rendered config). The `topn_empty_recheck_days` tier discussed during brainstorming is dropped — one knob, applies uniformly.
 
 ### 5. Test contract
 
@@ -168,11 +168,11 @@ Pre-fix, no v2 sidecars existed on disk. Every `schema_version=2, saved=0, avail
 ## Rollout
 
 1. Land all code changes on branch `fix/log-capture-detection`, merge to main, push.
-2. On server: `cd /home/bora/bazarr-topn && git pull`.
+2. On server: `cd <SERVER_REPO>/bazarr-topn && git pull`.
 3. Run the rescue command above.
 4. Verify with `is_topn_done` smoke script that a typical fresh v1 sidecar is rejected (as before) and that the detection triggers on a synthesized ERROR record.
 5. Either `sudo systemctl restart bazarr-topn.service` to refresh the watcher (optional — cron fires a fresh process anyway), or wait for the next cron at 02:17 UTC+3.
-6. Tail `/opt/boracloud/bazarr-topn/logs/scheduled-scan.log`. Expect `SearchUnavailable` paths to now produce the new warning `Provider errors during search (likely rate-limited). Sleeping …` and, on final exhaustion, `Search unavailable for [tr] (…); will retry next scan`.
+6. Tail `<DEPLOY_DIR>/logs/scheduled-scan.log`. Expect `SearchUnavailable` paths to now produce the new warning `Provider errors during search (likely rate-limited). Sleeping …` and, on final exhaustion, `Search unavailable for [tr] (…); will retry next scan`.
 7. Count v2 sidecars with `search_ok=true` vs `search_ok=false` after the scan stabilizes. Rate-limit victims should be in the `false` bucket and re-retried each subsequent cron.
 
 ## Open risks

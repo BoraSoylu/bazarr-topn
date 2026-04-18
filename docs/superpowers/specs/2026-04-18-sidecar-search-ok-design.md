@@ -5,7 +5,7 @@
 
 ## Background
 
-On the BoraCloud deployment (`languages: [tr]`, provider: `opensubtitlescom`), 394 of 554 Turkish sidecars (71%) currently sit at `saved=0, available=0, clean=true` and are therefore skipped by every scheduled scan until the 30-day recheck. The bulk were written on 2026-04-16 during the initial `scan --all` while opensubtitlescom was returning `429 Too Many Requests`. `scheduled-scan.log` contains 615 such errors.
+On my production deployment (`languages: [tr]`, provider: `opensubtitlescom`), 394 of 554 Turkish sidecars (71%) currently sit at `saved=0, available=0, clean=true` and are therefore skipped by every scheduled scan until the 30-day recheck. The bulk were written on 2026-04-16 during the initial `scan --all` while opensubtitlescom was returning `429 Too Many Requests`. `scheduled-scan.log` contains 615 such errors.
 
 The root cause is that `download_top_n` treats "empty candidate list" as a clean outcome regardless of *why* it was empty:
 
@@ -141,7 +141,7 @@ scanner.process_video
 ## Rollout / ops
 
 1. Land the change, run the test suite clean.
-2. Deploy to `/opt/boracloud/bazarr-topn/` (systemd restart of `bazarr-topn.service` plus the existing cron continues driving scheduled scans).
+2. Deploy to `<DEPLOY_DIR>/` (systemd restart of `bazarr-topn.service` plus the existing cron continues driving scheduled scans).
 3. The next `14:17 UTC+3` scan will start rewriting legacy sidecars. First pass across ~394 stuck videos will likely take multiple scans to finish, bounded by `search_delay=3.0s` plus backoffs.
 4. Success metric: count of v2 sidecars with `search_ok=true, saved>=min(target, available)` trends upward scan over scan; v1 sidecars trend to 0.
 
