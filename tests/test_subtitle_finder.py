@@ -395,13 +395,15 @@ class TestDownloadTopNSearchOk:
 
 
 class TestCapturedSubliminalErrors:
-    def test_captures_error_on_subliminal_logger(self) -> None:
+    def test_captures_handle_exception_unexpected_error(self) -> None:
         from bazarr_topn.subtitle_finder import _captured_subliminal_errors
 
         with _captured_subliminal_errors() as cap:
-            logging.getLogger("subliminal").error("boom")
+            logging.getLogger("subliminal.utils").error(
+                "Unexpected error. Provider %s", "opensubtitlescom",
+            )
         assert cap.had_errors is True
-        assert "boom" in cap.first_error_message
+        assert "opensubtitlescom" in cap.first_error_message
 
     def test_captures_error_on_subliminal_child_logger(self) -> None:
         """Propagation: a handler on 'subliminal' sees records from 'subliminal.x.y'."""
@@ -414,19 +416,51 @@ class TestCapturedSubliminalErrors:
         assert cap.had_errors is True
         assert "opensubtitlescom" in cap.first_error_message
 
+    def test_captures_all_handle_exception_prefixes(self) -> None:
+        """Each of subliminal.utils.handle_exception's 5 branches is captured."""
+        from bazarr_topn.subtitle_finder import _captured_subliminal_errors
+
+        messages = [
+            "Unexpected error. Provider opensubtitlescom",
+            "Request timed out. Provider opensubtitlescom",
+            "Service unavailable. Provider opensubtitlescom",
+            "HTTP error 500. Provider opensubtitlescom",
+            "SSL error 'handshake'. Provider opensubtitlescom",
+        ]
+        for msg in messages:
+            with _captured_subliminal_errors() as cap:
+                logging.getLogger("subliminal.utils").error(msg)
+            assert cap.had_errors is True, f"Missed: {msg}"
+
+    def test_ignores_unrelated_subliminal_errors(self) -> None:
+        """Provider modules log ERROR for legit non-failure reasons —
+        those must NOT be captured or we get false-positive retries."""
+        from bazarr_topn.subtitle_finder import _captured_subliminal_errors
+
+        non_failure_messages = [
+            "No show id found for 'whatever'",
+            "Episode 42 not found",
+            "No data returned from provider",
+            "Failed to match some internal regex",
+        ]
+        for msg in non_failure_messages:
+            with _captured_subliminal_errors() as cap:
+                logging.getLogger("subliminal.providers.tvsubtitles").error(msg)
+            assert cap.had_errors is False, f"False positive on: {msg}"
+
     def test_ignores_warning_and_info(self) -> None:
         from bazarr_topn.subtitle_finder import _captured_subliminal_errors
 
         with _captured_subliminal_errors() as cap:
-            logging.getLogger("subliminal").warning("warn")
-            logging.getLogger("subliminal").info("info")
+            logging.getLogger("subliminal").warning("Unexpected error. Provider X")
+            logging.getLogger("subliminal").info("Unexpected error. Provider X")
         assert cap.had_errors is False
 
     def test_ignores_errors_on_unrelated_loggers(self) -> None:
         from bazarr_topn.subtitle_finder import _captured_subliminal_errors
 
         with _captured_subliminal_errors() as cap:
-            logging.getLogger("not_subliminal").error("unrelated")
+            logging.getLogger("not_subliminal").error("Unexpected error. Provider X")
         assert cap.had_errors is False
 
     def test_handler_removed_on_clean_exit(self) -> None:

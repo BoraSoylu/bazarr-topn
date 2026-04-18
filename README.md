@@ -103,7 +103,7 @@ Key settings:
 | `languages` | `[en]` | Target languages (ISO 639-1 codes) |
 | `search_delay` | 3.0 | Seconds between provider searches (rate-limit floor) |
 | `download_delay` | 5.0 | Seconds between subtitle downloads |
-| `rate_limit_retries` | 2 | Retries on provider-discard (e.g. OpenSubtitles 429) |
+| `rate_limit_retries` | 2 | Retries on provider errors during search/download (e.g. OpenSubtitles 429) |
 | `rate_limit_initial_backoff` | 60.0 | First-retry backoff seconds (doubles each attempt) |
 | `topn_recheck_days` | 3 | Stale-sidecar age before a fresh rescan |
 | `topn_sidecar_enabled` | true | Write/read `.topn.json` sidecars for skip logic |

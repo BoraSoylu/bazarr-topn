@@ -36,13 +36,30 @@ class SearchUnavailable(Exception):
     """
 
 
+# Message prefixes produced by subliminal.utils.handle_exception — the
+# exact function subliminal calls when swallowing a provider exception.
+# Matching on these lets us ignore unrelated ERROR logs (e.g. a provider
+# module logging "Episode not found" for a legitimate 404 during search).
+_SUBLIMINAL_FAILURE_PREFIXES = (
+    "Unexpected error.",
+    "Request timed out.",
+    "Service unavailable.",
+    "HTTP error ",
+    "SSL error ",
+)
+
+
 class _SubliminalErrorCapture(logging.Handler):
-    """Logging handler that collects ERROR-level records from subliminal.
+    """Logging handler that collects handle_exception-style ERROR records.
 
     Used by `_captured_subliminal_errors` to detect provider failures that
     subliminal swallows with a generic `except Exception` (rate-limit errors,
     network errors, etc.). Those show up only as log records; subliminal does
     not add the provider to `discarded_providers` in that branch.
+
+    We filter to messages emitted by subliminal's `handle_exception` so that
+    unrelated ERROR logs from provider modules (e.g. "Episode not found" or
+    "No show id found") are not mistaken for failures.
     """
 
     def __init__(self) -> None:
@@ -50,7 +67,9 @@ class _SubliminalErrorCapture(logging.Handler):
         self.records: list[logging.LogRecord] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        self.records.append(record)
+        msg = record.getMessage()
+        if any(msg.startswith(p) for p in _SUBLIMINAL_FAILURE_PREFIXES):
+            self.records.append(record)
 
     @property
     def had_errors(self) -> bool:

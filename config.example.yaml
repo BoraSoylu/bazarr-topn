@@ -41,12 +41,13 @@ download_delay: 5.0
 # get your API consumer administratively disabled, not just rate-limited.
 search_delay: 3.0
 
-# Rate-limit retry behavior. Subliminal's ProviderPool discards a provider
-# permanently on any exception during search or download — including
-# OpenSubtitles' "Too Many Requests". That means one 429 mid-scan silently
-# breaks every subsequent video in the batch. We detect the discard, clear
-# it, sleep, and retry. Backoff doubles each attempt (60s → 120s → ...).
-# Set retries to 0 to disable.
+# Rate-limit retry behavior. OpenSubtitles returns HTTP 429 mid-scan when
+# you exceed its per-minute search quota. On the search path, subliminal
+# swallows the exception and returns []; we detect that by capturing ERROR
+# records from subliminal's handle_exception during list_subtitles. On the
+# download path, subliminal additionally marks the provider as discarded,
+# which we detect directly. In either case we sleep and retry. Backoff
+# doubles each attempt (60s → 120s → …). Set retries to 0 to disable.
 rate_limit_retries: 2
 rate_limit_initial_backoff: 60.0
 
