@@ -95,8 +95,11 @@ class TestIsTopnDone:
     """Full truth table for the skip-check helper."""
 
     def _write(self, video: Path, lang: str, **overrides) -> None:
-        defaults = dict(target=10, saved=10, available=15, clean=True,
-                        completed_at=datetime.now(timezone.utc).isoformat())
+        defaults = dict(
+            target=10, saved=10, available=15, clean=True,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            search_ok=True, schema_version=2,
+        )
         defaults.update(overrides)
         p = sidecar_path(video, lang)
         p.write_text(json.dumps(defaults))
@@ -117,10 +120,44 @@ class TestIsTopnDone:
         self._write(video, "en", target=10, saved=3, available=3, clean=True)
         assert is_topn_done(video, "en", cfg) is True
 
-    def test_available_zero_saved_zero_clean_is_done(self, video: Path, cfg: Config) -> None:
-        """No subs exist for this language at all — still done."""
-        self._write(video, "en", target=10, saved=0, available=0, clean=True)
+    def test_available_zero_saved_zero_clean_search_ok_is_done(
+        self, video: Path, cfg: Config
+    ) -> None:
+        """v2 sidecar: genuinely no Turkish subs exist — is_topn_done returns True."""
+        self._write(
+            video, "en",
+            target=10, saved=0, available=0, clean=True, search_ok=True,
+        )
         assert is_topn_done(video, "en", cfg) is True
+
+    def test_v1_legacy_sidecar_not_done(self, video: Path, cfg: Config) -> None:
+        """Legacy v1 sidecar (no schema_version, no search_ok) is never done."""
+        raw = dict(
+            target=10, saved=0, available=0, clean=True,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        sidecar_path(video, "en").write_text(json.dumps(raw))
+        assert is_topn_done(video, "en", cfg) is False
+
+    def test_v2_search_ok_false_not_done(self, video: Path, cfg: Config) -> None:
+        """Rate-limited sidecar is retried next scan."""
+        self._write(
+            video, "en",
+            target=10, saved=0, available=0, clean=False, search_ok=False,
+        )
+        assert is_topn_done(video, "en", cfg) is False
+
+    def test_v2_schema_version_1_explicitly_not_done(
+        self, video: Path, cfg: Config
+    ) -> None:
+        """Explicit schema_version=1 (written by old code) is rejected."""
+        raw = dict(
+            target=10, saved=10, available=15, clean=True,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            schema_version=1, search_ok=True,
+        )
+        sidecar_path(video, "en").write_text(json.dumps(raw))
+        assert is_topn_done(video, "en", cfg) is False
 
     def test_clean_false_not_done(self, video: Path, cfg: Config) -> None:
         """Run had failures — needs retry."""

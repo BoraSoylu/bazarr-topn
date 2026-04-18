@@ -89,19 +89,27 @@ def delete_sidecar(video_path: str | Path, lang: str) -> None:
 def is_topn_done(video_path: str | Path, lang: str, config: Config) -> bool:
     """Check if a video+language pair has a valid, complete sidecar.
 
-    Returns True if:
+    Returns True only if:
     1. Sidecar feature is enabled
     2. Sidecar exists and is parseable
-    3. clean == True
-    4. saved >= min(target, available)
-    5. target >= config.top_n (user hasn't raised their target)
-    6. completed_at within config.topn_recheck_days
+    3. schema_version >= 2 (v1 legacy always rejected)
+    4. search_ok is True (search actually completed)
+    5. clean is True (all attempted downloads succeeded)
+    6. saved >= min(target, available)
+    7. target >= config.top_n (user hasn't raised the target)
+    8. completed_at within config.topn_recheck_days
     """
     if not config.topn_sidecar_enabled:
         return False
 
     data = read_sidecar(video_path, lang)
     if data is None:
+        return False
+
+    if data.schema_version < SCHEMA_VERSION:
+        return False
+
+    if not data.search_ok:
         return False
 
     if not data.clean:
