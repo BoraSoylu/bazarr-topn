@@ -94,12 +94,19 @@ providers:
 # ffsubsync — automatic timing correction.
 # Requires: pip install bazarr-topn[sync] (or [sync-silero] for best quality)
 #
-# NOTE: ffsubsync is disabled by default. In testing, it sometimes made subtitle
-# timing worse rather than better — particularly with well-synced source subtitles
-# from OpenSubtitles hash matches. If your subtitles are already well-timed,
-# ffsubsync can introduce drift. Enable and test on a few files before running
-# on your full library. YMMV — results depend on source subtitle quality,
-# video encoding, and audio track characteristics.
+# DEFAULT: DISABLED. In real use on my own library, ffsubsync made subtitle
+# timing *worse* more often than it helped — especially with OpenSubtitles
+# hash-matched subs, which are already aligned to the release. Enabling it
+# introduced drift on well-synced files I would not have re-synced by hand.
+#
+# The top-N shotgun approach is the intended workaround: download many
+# candidates and let one of them naturally fit the release, rather than
+# re-timing a single pick.
+#
+# If you want to enable it: test on a handful of files first, compare
+# before/after in a player, and only flip it on for your full library if
+# the results are consistently better for your sources. Results vary with
+# subtitle source, video encoding, and audio characteristics.
 ffsubsync:
   enabled: false
 
