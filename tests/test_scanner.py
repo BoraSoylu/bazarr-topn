@@ -145,3 +145,83 @@ class TestProcessVideoSidecar:
             mock_scan.return_value = MagicMock()
             result = process_video(tmp_video, config, pool, force=True)
         assert result != -1
+
+
+class TestProcessVideoPoolClear:
+    def test_clears_pool_discards_before_processing(self, tmp_video: Path) -> None:
+        """process_video starts with an empty discard set each call."""
+        config = _make_config()
+        pool = MagicMock()
+        pool.discarded_providers = {"opensubtitlescom"}  # left over from previous video
+        fake_result = DownloadResult(
+            saved_paths=[], clean=True, available_count=0, search_ok=True,
+        )
+        with patch("bazarr_topn.scanner.scan_video") as mock_scan, \
+             patch("bazarr_topn.scanner.download_top_n", return_value=fake_result):
+            mock_scan.return_value = MagicMock()
+            process_video(tmp_video, config, pool)
+        # The pool's discard set should have been cleared at process_video entry
+        # (download_top_n returns success so it doesn't re-populate)
+        assert pool.discarded_providers == set()
+
+
+class TestProcessVideoSearchOkSidecar:
+    def test_writes_search_ok_true_on_clean_result(self, tmp_video: Path) -> None:
+        config = _make_config()
+        pool = MagicMock()
+        pool.discarded_providers = set()
+        fake_result = DownloadResult(
+            saved_paths=[], clean=True, available_count=0, search_ok=True,
+        )
+        with patch("bazarr_topn.scanner.scan_video") as mock_scan, \
+             patch("bazarr_topn.scanner.download_top_n", return_value=fake_result):
+            mock_scan.return_value = MagicMock()
+            process_video(tmp_video, config, pool)
+        sc = sidecar_path(tmp_video, "en")
+        data = json.loads(sc.read_text())
+        assert data["search_ok"] is True
+        assert data["schema_version"] == 2
+
+    def test_writes_search_ok_false_on_rate_limit_result(self, tmp_video: Path) -> None:
+        config = _make_config()
+        pool = MagicMock()
+        pool.discarded_providers = set()
+        fake_result = DownloadResult(
+            saved_paths=[], clean=False, available_count=0, search_ok=False,
+        )
+        with patch("bazarr_topn.scanner.scan_video") as mock_scan, \
+             patch("bazarr_topn.scanner.download_top_n", return_value=fake_result):
+            mock_scan.return_value = MagicMock()
+            process_video(tmp_video, config, pool)
+        sc = sidecar_path(tmp_video, "en")
+        data = json.loads(sc.read_text())
+        assert data["search_ok"] is False
+        assert data["clean"] is False
+        assert data["schema_version"] == 2
+
+    def test_legacy_v1_sidecar_gets_rewritten_as_v2(self, tmp_video: Path) -> None:
+        """The smoking-gun integration: the 394 stuck Turkish sidecars."""
+        # Hand-craft a legacy v1 sidecar on disk
+        legacy = dict(
+            target=10, saved=0, available=0, clean=True,
+            completed_at="2026-04-16T04:21:16.720980+00:00",
+        )
+        sc = sidecar_path(tmp_video, "en")
+        sc.write_text(json.dumps(legacy))
+
+        config = _make_config()
+        pool = MagicMock()
+        pool.discarded_providers = set()
+        # Simulate a successful re-scan that finds nothing (niche content)
+        fake_result = DownloadResult(
+            saved_paths=[], clean=True, available_count=0, search_ok=True,
+        )
+        with patch("bazarr_topn.scanner.scan_video") as mock_scan, \
+             patch("bazarr_topn.scanner.download_top_n", return_value=fake_result):
+            mock_scan.return_value = MagicMock()
+            result = process_video(tmp_video, config, pool)
+
+        assert result != -1  # not skipped — v1 triggered reprocessing
+        data = json.loads(sc.read_text())
+        assert data["schema_version"] == 2
+        assert data["search_ok"] is True
