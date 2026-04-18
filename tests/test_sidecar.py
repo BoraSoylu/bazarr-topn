@@ -163,6 +163,16 @@ class TestIsTopnDone:
         sidecar_path(video, "en").write_text(json.dumps(raw))
         assert is_topn_done(video, "en", cfg) is False
 
+    def test_malformed_schema_version_not_done(self, video: Path, cfg: Config) -> None:
+        """Non-int schema_version (hand-edit, future corruption) rejects safely."""
+        raw = dict(
+            target=10, saved=10, available=15, clean=True,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            schema_version="v2", search_ok=True,
+        )
+        sidecar_path(video, "en").write_text(json.dumps(raw))
+        assert is_topn_done(video, "en", cfg) is False
+
     def test_clean_false_not_done(self, video: Path, cfg: Config) -> None:
         """Run had failures — needs retry."""
         self._write(video, "en", target=10, saved=3, available=15, clean=False)

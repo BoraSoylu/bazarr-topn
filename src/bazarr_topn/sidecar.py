@@ -106,7 +106,10 @@ def is_topn_done(video_path: str | Path, lang: str, config: Config) -> bool:
     if data is None:
         return False
 
-    if data.schema_version < SCHEMA_VERSION:
+    try:
+        if int(data.schema_version) < SCHEMA_VERSION:
+            return False
+    except (TypeError, ValueError):
         return False
 
     if not data.search_ok:
