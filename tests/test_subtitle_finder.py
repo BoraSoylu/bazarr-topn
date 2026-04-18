@@ -306,3 +306,31 @@ class TestDeepCandidateIteration:
         assert result.saved_paths == []
         assert result.clean is True
         assert result.available_count == 0
+
+
+class TestSearchUnavailable:
+    def test_raises_when_retries_exhausted_with_discard(
+        self, no_delay_config: Config
+    ) -> None:
+        from bazarr_topn.subtitle_finder import SearchUnavailable
+
+        pool = FakePool(fail_list_times=99)  # always fails + discards
+        with pytest.raises(SearchUnavailable):
+            find_subtitles(
+                MagicMock(), Language.fromalpha2("en"), pool, config=no_delay_config
+            )
+        # initial + 2 retries = 3 attempts
+        assert pool.list_calls == 3
+
+    def test_no_raise_when_search_returns_empty_cleanly(
+        self, no_delay_config: Config
+    ) -> None:
+        from bazarr_topn.subtitle_finder import SearchUnavailable
+
+        pool = FakePool(subtitles_to_return=[])  # returns [] without discard
+        subs = find_subtitles(
+            MagicMock(), Language.fromalpha2("en"), pool, config=no_delay_config
+        )
+        assert subs == []
+        assert pool.list_calls == 1
+        assert not pool.discarded_providers

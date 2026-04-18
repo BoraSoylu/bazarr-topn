@@ -24,6 +24,14 @@ from bazarr_topn.naming import subtitle_path
 logger = logging.getLogger(__name__)
 
 
+class SearchUnavailable(Exception):
+    """Raised when find_subtitles exhausts retries with a discarded provider.
+
+    Distinct from 'search returned empty' — this means the search never
+    completed successfully (rate limit, network error at all attempts).
+    """
+
+
 def configure_cache() -> None:
     """Set up subliminal's dogpile cache (file-based)."""
     region.configure(
