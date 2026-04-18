@@ -384,3 +384,74 @@ class TestDownloadTopNSearchOk:
         assert result.clean is False
         assert result.search_ok is False
         assert result.available_count == 0
+
+
+class TestCapturedSubliminalErrors:
+    def test_captures_error_on_subliminal_logger(self) -> None:
+        from bazarr_topn.subtitle_finder import _captured_subliminal_errors
+
+        with _captured_subliminal_errors() as cap:
+            logging.getLogger("subliminal").error("boom")
+        assert cap.had_errors is True
+        assert "boom" in cap.first_error_message
+
+    def test_captures_error_on_subliminal_child_logger(self) -> None:
+        """Propagation: a handler on 'subliminal' sees records from 'subliminal.x.y'."""
+        from bazarr_topn.subtitle_finder import _captured_subliminal_errors
+
+        with _captured_subliminal_errors() as cap:
+            logging.getLogger("subliminal.providers.opensubtitlescom").error(
+                "Unexpected error. Provider %s", "opensubtitlescom",
+            )
+        assert cap.had_errors is True
+        assert "opensubtitlescom" in cap.first_error_message
+
+    def test_ignores_warning_and_info(self) -> None:
+        from bazarr_topn.subtitle_finder import _captured_subliminal_errors
+
+        with _captured_subliminal_errors() as cap:
+            logging.getLogger("subliminal").warning("warn")
+            logging.getLogger("subliminal").info("info")
+        assert cap.had_errors is False
+
+    def test_ignores_errors_on_unrelated_loggers(self) -> None:
+        from bazarr_topn.subtitle_finder import _captured_subliminal_errors
+
+        with _captured_subliminal_errors() as cap:
+            logging.getLogger("not_subliminal").error("unrelated")
+        assert cap.had_errors is False
+
+    def test_handler_removed_on_clean_exit(self) -> None:
+        from bazarr_topn.subtitle_finder import (
+            _captured_subliminal_errors, _SubliminalErrorCapture,
+        )
+
+        logger = logging.getLogger("subliminal")
+        before = list(logger.handlers)
+        with _captured_subliminal_errors():
+            pass
+        after = list(logger.handlers)
+        assert after == before
+        assert not any(isinstance(h, _SubliminalErrorCapture) for h in after)
+
+    def test_handler_removed_on_exception(self) -> None:
+        from bazarr_topn.subtitle_finder import (
+            _captured_subliminal_errors, _SubliminalErrorCapture,
+        )
+
+        logger = logging.getLogger("subliminal")
+        before = list(logger.handlers)
+        with pytest.raises(RuntimeError):
+            with _captured_subliminal_errors():
+                raise RuntimeError("oops")
+        after = list(logger.handlers)
+        assert after == before
+        assert not any(isinstance(h, _SubliminalErrorCapture) for h in after)
+
+    def test_first_error_message_when_empty(self) -> None:
+        from bazarr_topn.subtitle_finder import _captured_subliminal_errors
+
+        with _captured_subliminal_errors() as cap:
+            pass
+        assert cap.had_errors is False
+        assert cap.first_error_message == ""

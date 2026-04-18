@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import tempfile
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +32,56 @@ class SearchUnavailable(Exception):
     Distinct from 'search returned empty' — this means the search never
     completed successfully (rate limit, network error at all attempts).
     """
+
+
+class _SubliminalErrorCapture(logging.Handler):
+    """Logging handler that collects ERROR-level records from subliminal.
+
+    Used by `_captured_subliminal_errors` to detect provider failures that
+    subliminal swallows with a generic `except Exception` (rate-limit errors,
+    network errors, etc.). Those show up only as log records; subliminal does
+    not add the provider to `discarded_providers` in that branch.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+    @property
+    def had_errors(self) -> bool:
+        return bool(self.records)
+
+    @property
+    def first_error_message(self) -> str:
+        if not self.records:
+            return ""
+        return self.records[0].getMessage()
+
+
+@contextlib.contextmanager
+def _captured_subliminal_errors() -> Iterator[_SubliminalErrorCapture]:
+    """Capture ERROR-level log records from the ``subliminal`` logger tree.
+
+    Subliminal's ``handle_exception`` logs ``Unexpected error. Provider %s``
+    at ERROR whenever it swallows a provider exception in
+    ``ProviderPool.list_subtitles_provider``. That is the only cross-version
+    signal that a search attempt failed, because the generic ``except
+    Exception`` branch does not update ``discarded_providers``.
+
+    The handler attaches to the ``subliminal`` logger, so records from child
+    loggers (``subliminal.core``, ``subliminal.providers.*``) are captured
+    via standard propagation.
+    """
+    capture = _SubliminalErrorCapture()
+    logger = logging.getLogger("subliminal")
+    logger.addHandler(capture)
+    try:
+        yield capture
+    finally:
+        logger.removeHandler(capture)
 
 
 def configure_cache() -> None:
