@@ -100,14 +100,16 @@ class TestFindSubtitlesRetry:
         assert "opensubtitlescom" not in pool.discarded_providers
 
     def test_gives_up_after_max_retries(self, no_delay_config: Config) -> None:
+        from bazarr_topn.subtitle_finder import SearchUnavailable
+
         # fail_list_times=5 > retries=2, so all attempts fail
         pool = FakePool(fail_list_times=5)
-        subs = find_subtitles(
-            MagicMock(), Language.fromalpha2("en"), pool, config=no_delay_config
-        )
+        with pytest.raises(SearchUnavailable):
+            find_subtitles(
+                MagicMock(), Language.fromalpha2("en"), pool, config=no_delay_config
+            )
         # initial + 2 retries = 3 total attempts
         assert pool.list_calls == 3
-        assert subs == []
 
 
 class TestDownloadTopNRetry:

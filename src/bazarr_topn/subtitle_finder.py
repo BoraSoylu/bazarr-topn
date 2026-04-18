@@ -108,8 +108,15 @@ def find_subtitles(
         before = set(pool.discarded_providers)
         raw_subs = pool.list_subtitles(video, {language})
         newly_discarded = set(pool.discarded_providers) - before
-        if not newly_discarded or attempt >= retries:
+        if not newly_discarded:
             break
+        if attempt >= retries:
+            # Exhausted retries with provider still being discarded — the
+            # search never completed. Signal so the caller writes search_ok=False.
+            raise SearchUnavailable(
+                f"Providers {sorted(newly_discarded)} stayed discarded after "
+                f"{retries + 1} attempts for language {language}"
+            )
         sleep_s = backoff * (2 ** attempt)
         logger.warning(
             "Providers %s discarded during search (likely rate-limited). "
