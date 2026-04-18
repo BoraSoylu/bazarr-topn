@@ -105,7 +105,7 @@ Key settings:
 | `download_delay` | 5.0 | Seconds between subtitle downloads |
 | `rate_limit_retries` | 2 | Retries on provider-discard (e.g. OpenSubtitles 429) |
 | `rate_limit_initial_backoff` | 60.0 | First-retry backoff seconds (doubles each attempt) |
-| `topn_recheck_days` | 30 | Stale-sidecar age before a fresh rescan |
+| `topn_recheck_days` | 3 | Stale-sidecar age before a fresh rescan |
 | `topn_sidecar_enabled` | true | Write/read `.topn.json` sidecars for skip logic |
 | `ffsubsync.enabled` | **false** | Off by default — in my experience it often makes timing worse, not better. See `config.example.yaml` for the full rationale. |
 | `ffsubsync.gss` | true | Golden-section search for optimal framerate ratio (slower, more accurate) |
