@@ -57,10 +57,13 @@ rate_limit_initial_backoff: 60.0
 # Set to false to disable sidecars and fall back to always reprocessing.
 topn_sidecar_enabled: true
 
-# Re-check interval in days. Even "done" videos get another look
-# periodically in case new subtitles have been uploaded since.
-# Similar to Bazarr's 12h upgrade loop, but gentler cadence.
-topn_recheck_days: 30
+# Re-check interval in days. Sidecars older than this age are treated as
+# stale and the video is re-processed — even if it was previously marked
+# done. Keeps niche content re-searched regularly in case new subs appear,
+# and lets any rate-limit victim recover within a few days. Default is
+# low because the server side is cheap; raise this if download quota
+# becomes a concern.
+topn_recheck_days: 3
 
 # Maximum candidates to try per video+language when downloading.
 # OpenSubtitles often returns broken/empty files. We iterate deeper

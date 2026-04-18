@@ -94,7 +94,7 @@ class Config:
     watch_paths: list[str] = field(default_factory=list)
     watch_cooldown: int = 30
     watch_cold_start_scan: bool = True
-    topn_recheck_days: int = 30
+    topn_recheck_days: int = 3
     topn_sidecar_enabled: bool = True
     max_candidates_tried: int = 50
     path_mappings: list[dict[str, str]] = field(default_factory=list)

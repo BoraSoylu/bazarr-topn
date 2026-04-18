@@ -76,7 +76,7 @@ class TestConfigDefaults:
 class TestNewConfigDefaults:
     def test_topn_recheck_days_default(self) -> None:
         config = Config()
-        assert config.topn_recheck_days == 30
+        assert config.topn_recheck_days == 3
 
     def test_topn_sidecar_enabled_default(self) -> None:
         config = Config()
@@ -85,6 +85,11 @@ class TestNewConfigDefaults:
     def test_max_candidates_tried_default(self) -> None:
         config = Config()
         assert config.max_candidates_tried == 50
+
+    def test_default_is_three(self) -> None:
+        from bazarr_topn.config import Config
+        cfg = Config()
+        assert cfg.topn_recheck_days == 3
 
 
 class TestPathMappings:
