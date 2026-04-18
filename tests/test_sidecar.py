@@ -140,10 +140,14 @@ class TestIsTopnDone:
         assert is_topn_done(video, "en", cfg) is False
 
     def test_v2_search_ok_false_not_done(self, video: Path, cfg: Config) -> None:
-        """Rate-limited sidecar is retried next scan."""
+        """Rate-limited sidecar is retried next scan.
+
+        Uses clean=True so the test isolates the search_ok guard — a
+        rate-limited run that attempted nothing could legitimately be clean.
+        """
         self._write(
             video, "en",
-            target=10, saved=0, available=0, clean=False, search_ok=False,
+            target=10, saved=0, available=0, clean=True, search_ok=False,
         )
         assert is_topn_done(video, "en", cfg) is False
 
