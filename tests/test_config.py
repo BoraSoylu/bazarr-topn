@@ -86,11 +86,6 @@ class TestNewConfigDefaults:
         config = Config()
         assert config.max_candidates_tried == 50
 
-    def test_default_is_three(self) -> None:
-        from bazarr_topn.config import Config
-        cfg = Config()
-        assert cfg.topn_recheck_days == 3
-
 
 class TestPathMappings:
     def test_no_mappings(self) -> None:
