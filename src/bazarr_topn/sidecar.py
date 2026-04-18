@@ -66,6 +66,10 @@ def read_sidecar(video_path: str | Path, lang: str) -> SidecarData | None:
             available=raw["available"],
             clean=raw["clean"],
             completed_at=raw["completed_at"],
+            # Pessimistic defaults for legacy v1 files: pre-v2 code wrote
+            # clean=True even on rate-limited 0-result runs, so an absent
+            # search_ok must not be trusted. is_topn_done relies on these
+            # defaults to reject v1 sidecars and force a rewrite.
             search_ok=raw.get("search_ok", False),
             schema_version=raw.get("schema_version", 1),
         )
