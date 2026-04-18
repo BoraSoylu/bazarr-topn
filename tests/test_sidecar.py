@@ -154,3 +154,33 @@ class TestIsTopnDone:
         cfg.topn_sidecar_enabled = False
         self._write(video, "en", target=10, saved=10, available=15, clean=True)
         assert is_topn_done(video, "en", cfg) is False
+
+
+class TestSchemaV2:
+    def test_write_defaults_include_schema_version_and_search_ok(
+        self, video: Path
+    ) -> None:
+        data = SidecarData(target=10, saved=5, available=8, clean=True)
+        write_sidecar(video, "en", data)
+        raw = json.loads(sidecar_path(video, "en").read_text())
+        assert raw["schema_version"] == 2
+        assert raw["search_ok"] is True
+
+    def test_write_preserves_explicit_search_ok_false(self, video: Path) -> None:
+        data = SidecarData(
+            target=10, saved=0, available=0, clean=False, search_ok=False,
+        )
+        write_sidecar(video, "en", data)
+        raw = json.loads(sidecar_path(video, "en").read_text())
+        assert raw["search_ok"] is False
+        assert raw["schema_version"] == 2
+
+    def test_roundtrip_search_ok(self, video: Path) -> None:
+        data = SidecarData(
+            target=10, saved=0, available=0, clean=False, search_ok=False,
+        )
+        write_sidecar(video, "en", data)
+        loaded = read_sidecar(video, "en")
+        assert loaded is not None
+        assert loaded.search_ok is False
+        assert loaded.schema_version == 2

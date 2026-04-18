@@ -13,6 +13,9 @@ from bazarr_topn.config import Config
 logger = logging.getLogger(__name__)
 
 
+SCHEMA_VERSION = 2
+
+
 @dataclass
 class SidecarData:
     target: int
@@ -20,6 +23,8 @@ class SidecarData:
     available: int
     clean: bool
     completed_at: str | None = None
+    search_ok: bool = True
+    schema_version: int = SCHEMA_VERSION
 
 
 def sidecar_path(video_path: str | Path, lang: str) -> Path:
@@ -29,9 +34,10 @@ def sidecar_path(video_path: str | Path, lang: str) -> Path:
 
 
 def write_sidecar(video_path: str | Path, lang: str, data: SidecarData) -> Path:
-    """Write sidecar JSON. Sets completed_at to now if not already set."""
+    """Write sidecar JSON. Stamps current schema_version and completed_at."""
     if data.completed_at is None:
         data.completed_at = datetime.now(timezone.utc).isoformat()
+    data.schema_version = SCHEMA_VERSION
     path = sidecar_path(video_path, lang)
     path.write_text(json.dumps(asdict(data), indent=2) + "\n")
     logger.debug("Wrote sidecar %s", path.name)
