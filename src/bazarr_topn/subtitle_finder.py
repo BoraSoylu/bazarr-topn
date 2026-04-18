@@ -27,10 +27,12 @@ logger = logging.getLogger(__name__)
 
 
 class SearchUnavailable(Exception):
-    """Raised when find_subtitles exhausts retries with a discarded provider.
+    """Raised when find_subtitles exhausts retries while subliminal keeps
+    emitting ERROR-level log records on every attempt.
 
-    Distinct from 'search returned empty' — this means the search never
-    completed successfully (rate limit, network error at all attempts).
+    Distinct from 'search returned empty': this means the search never
+    completed successfully — typically rate limits, network errors, or
+    other provider exceptions that subliminal swallows silently.
     """
 
 
@@ -147,9 +149,11 @@ def find_subtitles(
 ) -> list[ScoredSubtitle]:
     """Find and score all available subtitles for a video+language.
 
-    If the pool discards providers mid-call (typically OpenSubtitles
-    "Too Many Requests"), we sleep with exponential backoff, un-discard
-    the provider, and retry up to `config.rate_limit_retries` times.
+    If subliminal logs any ERROR record during `pool.list_subtitles`
+    (typically OpenSubtitles "Too Many Requests" caught and swallowed
+    by its generic exception handler), we sleep with exponential backoff
+    and retry up to `config.rate_limit_retries` times. On exhaustion,
+    raises `SearchUnavailable` so the caller can persist search_ok=False.
 
     Returns subtitles sorted by score descending.
     """

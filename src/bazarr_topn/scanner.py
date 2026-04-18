@@ -51,9 +51,10 @@ def process_video(
 
     Returns the number of subtitles downloaded, or -1 if skipped.
     """
-    # Reset the provider pool's discard state so a rate-limited prior video
-    # does not poison this one. Within-video retry is still handled by
-    # find_subtitles' newly_discarded tracking.
+    # Reset the provider pool's discard state so a DiscardingError from a
+    # prior video does not poison this one. Generic provider exceptions
+    # (rate limits etc.) are detected in find_subtitles via log capture,
+    # which is independent of this set.
     pool.discarded_providers.clear()
 
     # Skip if all languages are done (unless --force)
