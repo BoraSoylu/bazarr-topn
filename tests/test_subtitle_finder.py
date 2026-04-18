@@ -336,3 +336,51 @@ class TestSearchUnavailable:
         assert subs == []
         assert pool.list_calls == 1
         assert not pool.discarded_providers
+
+
+class TestDownloadTopNSearchOk:
+    def test_search_ok_true_on_normal_path(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(subtitles_to_return=[
+            FakeSubtitle("opensubtitlescom", content=b"data"),
+        ])
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+        assert result.search_ok is True
+
+    def test_search_ok_true_on_empty_candidates(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        """Genuine empty result — search completed fine, just nothing matched."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(subtitles_to_return=[])
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+        assert result.saved_paths == []
+        assert result.clean is True
+        assert result.search_ok is True
+        assert result.available_count == 0
+
+    def test_search_ok_false_on_rate_limit(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        """SearchUnavailable from find_subtitles → search_ok=False, clean=False."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(fail_list_times=99)  # always discards
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+        assert result.saved_paths == []
+        assert result.clean is False
+        assert result.search_ok is False
+        assert result.available_count == 0

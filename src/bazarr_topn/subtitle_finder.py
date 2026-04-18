@@ -61,6 +61,7 @@ class DownloadResult:
     saved_paths: list[Path]
     clean: bool
     available_count: int
+    search_ok: bool = True
 
 
 def scan_video(video_path: str | Path) -> Video:
@@ -203,7 +204,16 @@ def download_top_n(
     if config.search_delay > 0:
         time.sleep(config.search_delay)
     logger.info("  Searching subtitles [%s]...", lang_str)
-    candidates = find_subtitles(video, language, pool, config=config)
+    try:
+        candidates = find_subtitles(video, language, pool, config=config)
+    except SearchUnavailable as e:
+        logger.warning(
+            "  Search unavailable for [%s] (%s); will retry next scan",
+            lang_str, e,
+        )
+        return DownloadResult(
+            saved_paths=[], clean=False, available_count=0, search_ok=False,
+        )
 
     # Filter by minimum score
     unfiltered_count = len(candidates)
@@ -216,7 +226,9 @@ def download_top_n(
         else:
             logger.info("  No subtitles passed min_score=%d for [%s] (%d candidates filtered out)",
                          config.min_score, lang_str, unfiltered_count)
-        return DownloadResult(saved_paths=[], clean=True, available_count=unfiltered_count)
+        return DownloadResult(
+            saved_paths=[], clean=True, available_count=unfiltered_count, search_ok=True,
+        )
 
     # Cap candidates at max_candidates_tried
     max_try = config.max_candidates_tried
@@ -280,4 +292,5 @@ def download_top_n(
         saved_paths=saved,
         clean=clean,
         available_count=unfiltered_count,
+        search_ok=True,
     )
