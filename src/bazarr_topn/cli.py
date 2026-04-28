@@ -171,3 +171,26 @@ def watch(ctx: click.Context, paths: tuple[str, ...]) -> None:
         sys.exit(1)
 
     do_watch(config)
+
+
+@main.command()
+@click.option("--host", default=None, help="Listen address (overrides config.webhook.host)")
+@click.option("--port", type=int, default=None, help="Listen port (overrides config.webhook.port)")
+@click.pass_context
+def serve(ctx: click.Context, host: str | None, port: int | None) -> None:
+    """Run the Sonarr/Radarr webhook receiver.
+
+    \b
+    Examples:
+      bazarr-topn serve
+      bazarr-topn serve --host 0.0.0.0 --port 8181
+    """
+    from bazarr_topn import webhook
+
+    config: Config = ctx.obj["config"]
+    if host:
+        config.webhook.host = host
+    if port:
+        config.webhook.port = port
+
+    webhook.serve(config)
