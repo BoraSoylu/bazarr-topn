@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import posixpath  # webhooks always carry forward-slash paths from arr
+from dataclasses import dataclass, field
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -175,3 +176,20 @@ def cleanup_orphan_sidecars(old_video_path: str, config: Config) -> int:
             except OSError as e:
                 logger.debug("Could not remove %s: %s", json_path, e)
     return removed
+
+
+@dataclass
+class WebhookJob:
+    """A single unit of work for the worker thread.
+
+    `deleted_paths` is non-empty only on upgrade events. The worker iterates
+    those before processing `video_path`, calling cleanup_orphan_sidecars
+    once per old stem.
+    """
+
+    video_path: str
+    deleted_paths: list[str] = field(default_factory=list)
+
+    @property
+    def is_upgrade(self) -> bool:
+        return bool(self.deleted_paths)

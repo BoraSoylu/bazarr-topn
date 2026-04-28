@@ -8,6 +8,7 @@ from bazarr_topn.config import Config
 from bazarr_topn.webhook import (
     SonarrPayload,
     RadarrPayload,
+    WebhookJob,
     cleanup_orphan_sidecars,
     resolve_sonarr_video_path,
     resolve_radarr_video_path,
@@ -311,3 +312,15 @@ class TestCleanupOrphanSidecars:
         )
         # Should not raise; nothing to delete.
         assert cleanup_orphan_sidecars(str(old_video), config) == 0
+
+
+class TestWebhookJob:
+    def test_construct_download(self) -> None:
+        job = WebhookJob(video_path="/x/a.mkv", deleted_paths=[])
+        assert job.video_path == "/x/a.mkv"
+        assert job.deleted_paths == []
+        assert job.is_upgrade is False  # derived from deleted_paths
+
+    def test_construct_upgrade(self) -> None:
+        job = WebhookJob(video_path="/x/new.mkv", deleted_paths=["/x/old.mkv"])
+        assert job.is_upgrade is True
