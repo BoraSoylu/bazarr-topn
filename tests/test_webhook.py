@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from bazarr_topn.config import Config
 from bazarr_topn.webhook import (
     SonarrPayload,
     RadarrPayload,
+    resolve_sonarr_video_path,
+    resolve_radarr_video_path,
+    resolve_sonarr_deleted_paths,
+    resolve_radarr_deleted_paths,
 )
 
 
@@ -174,3 +179,80 @@ class TestRadarrPayloadParsing:
         p = RadarrPayload.model_validate(RADARR_TEST)
         assert p.event_type == "Test"
         assert p.movie_file is None
+
+
+class TestResolveSonarrVideoPath:
+    def test_uses_absolute_path_when_present(self) -> None:
+        p = SonarrPayload.model_validate(SONARR_DOWNLOAD)
+        config = Config()
+        assert resolve_sonarr_video_path(p, config) == (
+            "/media/tv/Test Show/Season 01/Test Show - S01E01.mkv"
+        )
+
+    def test_joins_relative_with_series_path_when_absolute_missing(self) -> None:
+        payload = {
+            **SONARR_DOWNLOAD,
+            "episodeFile": {"relativePath": "Season 01/X.mkv"},  # no `path`
+        }
+        p = SonarrPayload.model_validate(payload)
+        assert resolve_sonarr_video_path(p, Config()) == "/media/tv/Test Show/Season 01/X.mkv"
+
+    def test_applies_path_mapping(self) -> None:
+        p = SonarrPayload.model_validate(SONARR_DOWNLOAD)
+        config = Config(path_mappings=[{"container": "/media", "host": "/mnt/media"}])
+        assert resolve_sonarr_video_path(p, config) == (
+            "/mnt/media/tv/Test Show/Season 01/Test Show - S01E01.mkv"
+        )
+
+    def test_returns_none_when_no_episode_file(self) -> None:
+        p = SonarrPayload.model_validate(SONARR_TEST)
+        assert resolve_sonarr_video_path(p, Config()) is None
+
+
+class TestResolveRadarrVideoPath:
+    def test_uses_absolute_path_when_present(self) -> None:
+        p = RadarrPayload.model_validate(RADARR_DOWNLOAD)
+        assert resolve_radarr_video_path(p, Config()) == (
+            "/media/movies/Test Movie (2024)/Test Movie (2024).mkv"
+        )
+
+    def test_joins_relative_with_folder_path(self) -> None:
+        payload = {
+            **RADARR_DOWNLOAD,
+            "movieFile": {"relativePath": "movie.mkv"},
+        }
+        p = RadarrPayload.model_validate(payload)
+        assert resolve_radarr_video_path(p, Config()) == (
+            "/media/movies/Test Movie (2024)/movie.mkv"
+        )
+
+    def test_applies_path_mapping(self) -> None:
+        p = RadarrPayload.model_validate(RADARR_DOWNLOAD)
+        config = Config(path_mappings=[{"container": "/media", "host": "/mnt/media"}])
+        assert resolve_radarr_video_path(p, config) == (
+            "/mnt/media/movies/Test Movie (2024)/Test Movie (2024).mkv"
+        )
+
+    def test_returns_none_when_no_movie_file(self) -> None:
+        p = RadarrPayload.model_validate(RADARR_TEST)
+        assert resolve_radarr_video_path(p, Config()) is None
+
+
+class TestResolveDeletedPaths:
+    def test_sonarr_deleted_paths_remapped(self) -> None:
+        p = SonarrPayload.model_validate(SONARR_UPGRADE)
+        config = Config(path_mappings=[{"container": "/media", "host": "/mnt/media"}])
+        assert resolve_sonarr_deleted_paths(p, config) == [
+            "/mnt/media/tv/Test Show/Season 01/Test Show - S01E01.mkv",
+        ]
+
+    def test_radarr_deleted_paths_remapped(self) -> None:
+        p = RadarrPayload.model_validate(RADARR_UPGRADE)
+        config = Config(path_mappings=[{"container": "/media", "host": "/mnt/media"}])
+        assert resolve_radarr_deleted_paths(p, config) == [
+            "/mnt/media/movies/Test Movie (2024)/Test Movie (2024).mkv",
+        ]
+
+    def test_no_deleted_files_returns_empty(self) -> None:
+        p = SonarrPayload.model_validate(SONARR_DOWNLOAD)
+        assert resolve_sonarr_deleted_paths(p, Config()) == []

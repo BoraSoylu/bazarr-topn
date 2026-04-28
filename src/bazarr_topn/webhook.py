@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import posixpath  # webhooks always carry forward-slash paths from arr
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from bazarr_topn.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +85,60 @@ class RadarrPayload(_ArrModel):
     movie: RadarrMovie = Field(default_factory=lambda: RadarrMovie(folder_path="/"))
     movie_file: Optional[RadarrMovieFile] = Field(default=None, alias="movieFile")
     deleted_files: list[RadarrMovieFile] = Field(default_factory=list, alias="deletedFiles")
+
+
+# --- Path resolution helpers ---
+
+
+def _join_arr_path(parent: str, child_relative: str) -> str:
+    """Join a Sonarr/Radarr parent path + relative path.
+
+    Always uses POSIX semantics — these payloads come from .NET apps that
+    normalize to forward-slash, regardless of the host OS. The result is a
+    string we then pass to Config.map_path; Path() conversion happens later
+    inside scanner.process_video.
+    """
+    return posixpath.join(parent.rstrip("/"), child_relative.lstrip("/"))
+
+
+def resolve_sonarr_video_path(payload: SonarrPayload, config: Config) -> Optional[str]:
+    """Return the absolute host-side path of the imported episode file, or None.
+
+    Prefers the payload's absolute `path` field; falls back to joining
+    `series.path` + `episodeFile.relativePath`. Always runs through
+    Config.map_path to translate container paths to host paths.
+    """
+    if payload.episode_file is None:
+        return None
+    raw = payload.episode_file.path
+    if not raw:
+        raw = _join_arr_path(payload.series.path, payload.episode_file.relative_path)
+    return config.map_path(raw)
+
+
+def resolve_radarr_video_path(payload: RadarrPayload, config: Config) -> Optional[str]:
+    """Return the absolute host-side path of the imported movie file, or None."""
+    if payload.movie_file is None:
+        return None
+    raw = payload.movie_file.path
+    if not raw:
+        raw = _join_arr_path(payload.movie.folder_path, payload.movie_file.relative_path)
+    return config.map_path(raw)
+
+
+def resolve_sonarr_deleted_paths(payload: SonarrPayload, config: Config) -> list[str]:
+    """Return mapped host-side paths of all deletedFiles entries."""
+    out: list[str] = []
+    for f in payload.deleted_files:
+        raw = f.path or _join_arr_path(payload.series.path, f.relative_path)
+        out.append(config.map_path(raw))
+    return out
+
+
+def resolve_radarr_deleted_paths(payload: RadarrPayload, config: Config) -> list[str]:
+    """Return mapped host-side paths of all deletedFiles entries."""
+    out: list[str] = []
+    for f in payload.deleted_files:
+        raw = f.path or _join_arr_path(payload.movie.folder_path, f.relative_path)
+        out.append(config.map_path(raw))
+    return out
