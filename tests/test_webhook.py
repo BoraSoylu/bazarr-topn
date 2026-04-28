@@ -8,6 +8,7 @@ import time as _time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from bazarr_topn.config import Config
@@ -531,6 +532,43 @@ class TestWorker:
             fake_process.side_effect = [RuntimeError("boom"), 3]
             run_worker(q, config, pool)
         assert fake_process.call_count == 2
+
+    # The thread raises SystemExit (via fake_exit) which pytest sees as an
+    # "unhandled thread exception" and re-emits as a warning. That warning is
+    # exactly what we want — it proves the thread terminated instead of looping
+    # silently. Mark it as expected so the suite stays clean.
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    def test_unrecoverable_error_calls_os_exit(self, tmp_path: Path) -> None:
+        """Worker outer-loop fault handler: an OSError opening the lockfile
+        (e.g. PermissionError on os.makedirs) must trigger os._exit(1) so
+        systemd can restart the service, rather than silently dying while
+        uvicorn continues to accept and 200-ack requests into a dead queue.
+        """
+        config = Config(languages=["en"])
+        # Point lockfile at a path whose *parent* cannot be created (simulate
+        # PermissionError) by making _scan_lock raise directly via mock.
+        config.webhook.lockfile = str(tmp_path / "test.lock")
+
+        q: _queue.Queue = _queue.Queue()
+        q.put(WebhookJob(video_path=str(tmp_path / "movie.mkv"), deleted_paths=[]))
+        # No sentinel — the worker should os._exit before it would ever drain it.
+        pool = MagicMock()
+
+        exit_calls: list[int] = []
+
+        def fake_exit(code: int) -> None:  # noqa: ANN001
+            exit_calls.append(code)
+            # Raise so the thread actually terminates in the test.
+            raise SystemExit(code)
+
+        with patch("bazarr_topn.webhook._scan_lock", side_effect=OSError("permission denied")), \
+             patch("bazarr_topn.webhook.os._exit", side_effect=fake_exit):
+            t = threading.Thread(target=run_worker, args=(q, config, pool), daemon=True)
+            t.start()
+            t.join(timeout=3)
+
+        assert not t.is_alive(), "Worker thread should have terminated"
+        assert exit_calls == [1], "os._exit(1) must be called exactly once"
 
     def test_holds_lockfile_while_processing(self, tmp_path: Path) -> None:
         import fcntl

@@ -307,31 +307,48 @@ def run_worker(job_queue: _queue.Queue, config: Config, pool) -> None:
     Exceptions in cleanup or process_video are logged and swallowed so the
     worker drains the rest of the queue. (Mirrors VideoHandler._process_pending
     behavior.)
+
+    If an unexpected exception escapes the per-job guard (e.g., OSError when
+    opening the lockfile directory, or any other unrecoverable condition), the
+    worker logs critically and calls os._exit(1). This ensures systemd restarts
+    the service rather than leaving uvicorn silently accepting requests against
+    a dead queue. Per the spec: "Worker thread crash → process exit. systemd
+    will restart. Acceptable; cron is the safety net."
     """
     while True:
-        job = job_queue.get()
-        if job is None:
-            return
         try:
-            with _scan_lock(config.webhook.lockfile):
-                for old in job.deleted_paths:
+            job = job_queue.get()
+            if job is None:
+                return
+            try:
+                with _scan_lock(config.webhook.lockfile):
+                    for old in job.deleted_paths:
+                        try:
+                            cleanup_orphan_sidecars(old, config)
+                        except Exception:
+                            logger.exception("Cleanup failed for %s", old)
+                    video_path = Path(job.video_path)
+                    if not video_path.exists():
+                        logger.warning(
+                            "Webhook target does not exist on disk (path mapping wrong?): %s",
+                            video_path,
+                        )
+                        continue
                     try:
-                        cleanup_orphan_sidecars(old, config)
+                        process_video(video_path, config, pool)
                     except Exception:
-                        logger.exception("Cleanup failed for %s", old)
-                video_path = Path(job.video_path)
-                if not video_path.exists():
-                    logger.warning(
-                        "Webhook target does not exist on disk (path mapping wrong?): %s",
-                        video_path,
-                    )
-                    continue
-                try:
-                    process_video(video_path, config, pool)
-                except Exception:
-                    logger.exception("process_video failed for %s", video_path)
-        finally:
-            job_queue.task_done()
+                        logger.exception("process_video failed for %s", video_path)
+            finally:
+                job_queue.task_done()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:
+            logger.critical(
+                "Unrecoverable error in webhook worker — calling os._exit(1) so "
+                "systemd can restart the service.",
+                exc_info=True,
+            )
+            os._exit(1)
 
 
 def serve(config: Config) -> None:
@@ -374,5 +391,15 @@ def serve(config: Config) -> None:
             access_log=False,
         )
         # On uvicorn return (Ctrl+C / SIGTERM), tell the worker to stop.
+        # We use a 60-second timeout because process_video may be mid-download
+        # when SIGTERM arrives and can easily exceed 5 seconds on real media
+        # files. Bumping to 60s gives in-flight jobs a fair chance to complete
+        # cleanly before the process exits. The worker is a daemon thread, so
+        # if it still hasn't finished after 60s the OS will reclaim resources.
         job_queue.put(None)
-        worker_thread.join(timeout=5)
+        worker_thread.join(timeout=60)
+        if worker_thread.is_alive():
+            logger.warning(
+                "Webhook worker did not finish within 60 s shutdown window; "
+                "in-flight job may have been abandoned."
+            )
