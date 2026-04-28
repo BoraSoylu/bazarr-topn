@@ -12,7 +12,7 @@
 
 ## Important context (read before starting)
 
-**The exact webhook field names below were verified against Sonarr/Radarr `develop` source on 2026-04-28.** Both apps use `System.Text.Json` with `JsonNamingPolicy.CamelCase` and `JsonStringEnumConverter(JsonNamingPolicy.CamelCase)`. So PascalCase C# property names like `EventType`, `EpisodeFile`, `DeletedFiles`, `IsUpgrade` serialize to `eventType`, `episodeFile`, `deletedFiles`, `isUpgrade`. The `Download` enum value serializes to the string `"download"` (lowercase). Critically: **there is no separate `Upgrade` event type** — Sonarr/Radarr send `eventType: "download"` for both new imports and upgrades, and the receiver distinguishes them via the `isUpgrade: bool` field (true when the import replaced existing files; the replaced files appear in `deletedFiles[]`).
+**The exact webhook field names below were verified against Sonarr/Radarr `develop` source on 2026-04-28.** Sonarr's `WebhookEventType.cs` uses `[JsonConverter(typeof(StringEnumConverter), converterParameters: typeof(DefaultNamingStrategy))]` (Newtonsoft.Json), which serializes enum values **as-is in PascalCase** — so the literal strings on the wire are `"Test"`, `"Grab"`, `"Download"`, `"Rename"` etc. Property names are camelCase via the standard contract (`eventType`, `episodeFile`, `deletedFiles`, `isUpgrade`). Critically: **there is no separate `Upgrade` event type** — Sonarr/Radarr send `eventType: "Download"` for both new imports and upgrades, and the receiver distinguishes them via the `isUpgrade: bool` field (true when the import replaced existing files; the replaced files appear in `deletedFiles[]`).
 
 Reused primitives (do NOT reimplement):
 - `Config.map_path(path: str) -> str` — `src/bazarr_topn/config.py:173`. Translates container paths (e.g. `/media/...` from a Sonarr Docker container) to host paths using `Config.path_mappings`. Wire the receiver through this for every path field.
@@ -226,7 +226,7 @@ from bazarr_topn.webhook import (
 # --- Fixture payloads (camelCase, exact field names from Sonarr/Radarr develop) ---
 
 SONARR_DOWNLOAD = {
-    "eventType": "download",
+    "eventType": "Download",
     "isUpgrade": False,
     "instanceName": "Sonarr",
     "applicationUrl": "",
@@ -249,7 +249,7 @@ SONARR_DOWNLOAD = {
 }
 
 SONARR_UPGRADE = {
-    "eventType": "download",
+    "eventType": "Download",
     "isUpgrade": True,
     "instanceName": "Sonarr",
     "applicationUrl": "",
@@ -280,7 +280,7 @@ SONARR_UPGRADE = {
 }
 
 RADARR_DOWNLOAD = {
-    "eventType": "download",
+    "eventType": "Download",
     "isUpgrade": False,
     "instanceName": "Radarr",
     "applicationUrl": "",
@@ -300,7 +300,7 @@ RADARR_DOWNLOAD = {
 }
 
 RADARR_UPGRADE = {
-    "eventType": "download",
+    "eventType": "Download",
     "isUpgrade": True,
     "instanceName": "Radarr",
     "applicationUrl": "",
@@ -328,7 +328,7 @@ RADARR_UPGRADE = {
 }
 
 SONARR_TEST = {
-    "eventType": "test",
+    "eventType": "Test",
     "instanceName": "Sonarr",
     "applicationUrl": "",
     "series": {"id": 0, "title": "Test Title", "path": "/", "tvdbId": 0, "year": 0},
@@ -336,7 +336,7 @@ SONARR_TEST = {
 }
 
 RADARR_TEST = {
-    "eventType": "test",
+    "eventType": "Test",
     "instanceName": "Radarr",
     "applicationUrl": "",
     "movie": {"id": 0, "title": "Test Title", "year": 0, "folderPath": "/", "tmdbId": 0},
@@ -348,7 +348,7 @@ RADARR_TEST = {
 class TestSonarrPayloadParsing:
     def test_download(self) -> None:
         p = SonarrPayload.model_validate(SONARR_DOWNLOAD)
-        assert p.event_type == "download"
+        assert p.event_type == "Download"
         assert p.is_upgrade is False
         assert p.series.path == "/media/tv/Test Show"
         assert p.episode_file is not None
@@ -358,21 +358,21 @@ class TestSonarrPayloadParsing:
 
     def test_upgrade_carries_deleted_files(self) -> None:
         p = SonarrPayload.model_validate(SONARR_UPGRADE)
-        assert p.event_type == "download"
+        assert p.event_type == "Download"
         assert p.is_upgrade is True
         assert len(p.deleted_files) == 1
         assert p.deleted_files[0].path == "/media/tv/Test Show/Season 01/Test Show - S01E01.mkv"
 
     def test_test_event_has_no_episode_file(self) -> None:
         p = SonarrPayload.model_validate(SONARR_TEST)
-        assert p.event_type == "test"
+        assert p.event_type == "Test"
         assert p.episode_file is None
 
 
 class TestRadarrPayloadParsing:
     def test_download(self) -> None:
         p = RadarrPayload.model_validate(RADARR_DOWNLOAD)
-        assert p.event_type == "download"
+        assert p.event_type == "Download"
         assert p.is_upgrade is False
         assert p.movie.folder_path == "/media/movies/Test Movie (2024)"
         assert p.movie_file is not None
@@ -387,7 +387,7 @@ class TestRadarrPayloadParsing:
 
     def test_test_event_has_no_movie_file(self) -> None:
         p = RadarrPayload.model_validate(RADARR_TEST)
-        assert p.event_type == "test"
+        assert p.event_type == "Test"
         assert p.movie_file is None
 ```
 
@@ -463,7 +463,7 @@ class SonarrPayload(_ArrModel):
     """Top-level Sonarr webhook payload.
 
     Field names track Sonarr's WebhookImportPayload (develop branch). Sonarr
-    fires `eventType: "download"` for both new imports and upgrades; the
+    fires `eventType: "Download"` for both new imports and upgrades; the
     receiver distinguishes them via `is_upgrade`. On upgrade events,
     `deleted_files` contains the replaced episode files.
     """
@@ -1053,7 +1053,7 @@ class TestRouting:
         config = _config_with_token()
         app, q = build_app(config)
         client = TestClient(app)
-        payload = {**SONARR_DOWNLOAD, "eventType": "grab"}
+        payload = {**SONARR_DOWNLOAD, "eventType": "Grab"}
         r = client.post(
             "/sonarr",
             json=payload,
@@ -1107,9 +1107,9 @@ def build_app(config: Config) -> tuple[FastAPI, _queue.Queue]:
 
     @app.post("/sonarr", dependencies=[Depends(auth)])
     def sonarr(payload: SonarrPayload) -> dict[str, str]:
-        if payload.event_type == "test":
+        if payload.event_type == "Test":
             return {"status": "ok"}
-        if payload.event_type != "download":
+        if payload.event_type != "Download":
             # Quietly accept unknown event types; *arr won't retry on 200.
             logger.debug("Sonarr: ignoring eventType=%s", payload.event_type)
             return {"status": "ok"}
@@ -1128,9 +1128,9 @@ def build_app(config: Config) -> tuple[FastAPI, _queue.Queue]:
 
     @app.post("/radarr", dependencies=[Depends(auth)])
     def radarr(payload: RadarrPayload) -> dict[str, str]:
-        if payload.event_type == "test":
+        if payload.event_type == "Test":
             return {"status": "ok"}
-        if payload.event_type != "download":
+        if payload.event_type != "Download":
             logger.debug("Radarr: ignoring eventType=%s", payload.event_type)
             return {"status": "ok"}
         video = resolve_radarr_video_path(payload, config)
@@ -1689,7 +1689,7 @@ class TestEndToEndIntegration:
             fake_process.return_value = 5
             for i in range(1, 25):
                 payload = {
-                    "eventType": "download",
+                    "eventType": "Download",
                     "isUpgrade": False,
                     "series": {"path": "/media/tv/Test Show", "title": "Test Show"},
                     "episodes": [
@@ -1787,7 +1787,7 @@ Append to `tests/test_webhook.py`:
         worker.start()
 
         upgrade_payload = {
-            "eventType": "download",
+            "eventType": "Download",
             "isUpgrade": True,
             "series": {"path": "/media/tv/Show", "title": "Test Show"},
             "episodes": [
@@ -2009,7 +2009,7 @@ sleep 2
 curl -s http://127.0.0.1:9999/healthz
 echo
 curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:9999/sonarr -H "Content-Type: application/json" -d '{}'
-curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:9999/sonarr -H "Content-Type: application/json" -H "X-Webhook-Token: testtok" -d '{"eventType":"test"}'
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:9999/sonarr -H "Content-Type: application/json" -H "X-Webhook-Token: testtok" -d '{"eventType":"Test"}'
 kill $SERVER_PID
 wait $SERVER_PID 2>/dev/null
 rm -f /tmp/bazarr-topn-test.lock /tmp/test-token.yaml /tmp/no-token.yaml
