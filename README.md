@@ -86,6 +86,77 @@ WantedBy=multi-user.target
 
 Sidecars keep this cheap: each run only works on the backlog (missing sidecars, stale sidecars past `topn_recheck_days`, or sidecars flagged `search_ok=false` from a previous rate-limited run).
 
+## Webhook receiver
+
+Filesystem watching with inotify is unreliable on `fuse.mergerfs` and similar overlay filesystems. If you run a homelab where Sonarr/Radarr already know the exact moment a new file lands, the `serve` subcommand replaces filesystem watching with HTTP webhooks.
+
+```bash
+bazarr-topn serve              # uses host/port from config.webhook
+bazarr-topn serve --port 8181  # override
+```
+
+It exposes:
+
+- `POST /sonarr` — accepts Sonarr's `On Import` and `On Upgrade` events
+- `POST /radarr` — accepts Radarr's `On Import` and `On Upgrade` events
+- `GET /healthz` — unauthenticated liveness probe
+
+A single in-process worker drains queued events serially and shares a `flock`-based lockfile with the cron `--all` so they never run concurrently.
+
+### Sonarr setup
+
+In Sonarr, go to **Settings → Connect → Add → Webhook** and configure:
+
+- URL: `http://localhost:9595/sonarr`
+- Method: `POST`
+- Triggers: enable **On Import** and **On Upgrade**
+- Headers: add `X-Webhook-Token: <your-secret>` (must match `webhook.token` in config.yaml)
+
+Click **Test** — bazarr-topn returns 200 if auth is correct.
+
+### Radarr setup
+
+Same path (**Settings → Connect → Add → Webhook**) but URL `http://localhost:9595/radarr`.
+
+### Config snippet
+
+```yaml
+webhook:
+  host: 127.0.0.1            # bind only to loopback by default
+  port: 9595
+  token: ${BAZARR_TOPN_WEBHOOK_TOKEN}
+  lockfile: /var/lock/bazarr-topn-scan.lock
+
+# Required when Sonarr/Radarr run in Docker and report container paths:
+path_mappings:
+  - container: /media
+    host: /mnt/media
+```
+
+The `path_mappings` block translates container paths from the webhook payload (e.g. `/media/movies/...` from a Sonarr Docker container) to the host paths bazarr-topn sees. Reuses the same `path_mappings` config that `scan --all` uses.
+
+### Systemd unit
+
+Replace `watch` with `serve` in your unit's `ExecStart`:
+
+```ini
+[Service]
+Environment="BAZARR_TOPN_WEBHOOK_TOKEN=your-long-random-secret"
+ExecStart=/usr/local/bin/bazarr-topn -c /etc/bazarr-topn/config.yaml serve
+```
+
+If you used `bazarr-topn watch` previously, it remains in the codebase — useful for filesystems where inotify works reliably.
+
+### Cron lockfile coordination
+
+To prevent the cron `--all` from racing with webhook-driven scans, wrap it with `flock`:
+
+```cron
+17 2,14 * * * flock -n /var/lock/bazarr-topn-scan.lock /usr/local/bin/bazarr-topn -c /etc/bazarr-topn/config.yaml scan --all
+```
+
+`flock -n` exits immediately if the lock is held, which is fine — webhooks already cover the new files; the cron is just the safety net.
+
 ## Configuration
 
 All settings live in `config.yaml`. Environment variables are supported with `${VAR_NAME}` syntax.
