@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import queue as _queue
+import threading
+import time as _time
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -18,6 +21,7 @@ from bazarr_topn.webhook import (
     resolve_radarr_video_path,
     resolve_sonarr_deleted_paths,
     resolve_radarr_deleted_paths,
+    run_worker,
 )
 
 
@@ -478,3 +482,85 @@ class TestRouting:
         )
         assert r.status_code == 200
         assert q.qsize() == 0
+
+
+class TestWorker:
+    def test_processes_jobs_in_order(self, tmp_path: Path) -> None:
+        a = tmp_path / "a.mkv"; a.write_bytes(b"")
+        b = tmp_path / "b.mkv"; b.write_bytes(b"")
+        config = Config(languages=["en"])
+        config.webhook.lockfile = str(tmp_path / "test.lock")
+        q: _queue.Queue = _queue.Queue()
+        q.put(WebhookJob(video_path=str(a), deleted_paths=[]))
+        q.put(WebhookJob(video_path=str(b), deleted_paths=[]))
+        q.put(None)
+        pool = MagicMock()
+        with patch("bazarr_topn.webhook.process_video") as fake_process:
+            fake_process.return_value = 5
+            run_worker(q, config, pool)
+        calls = [str(c.args[0]) for c in fake_process.call_args_list]
+        assert calls == [str(a), str(b)]
+
+    def test_calls_cleanup_on_upgrade(self, tmp_path: Path) -> None:
+        new = tmp_path / "new.mkv"; new.write_bytes(b"")
+        config = Config(languages=["en"])
+        config.webhook.lockfile = str(tmp_path / "test.lock")
+        q: _queue.Queue = _queue.Queue()
+        q.put(WebhookJob(video_path=str(new), deleted_paths=["/x/old.mkv"]))
+        q.put(None)
+        pool = MagicMock()
+        with patch("bazarr_topn.webhook.process_video") as fake_process, \
+             patch("bazarr_topn.webhook.cleanup_orphan_sidecars") as fake_cleanup:
+            fake_process.return_value = 5
+            fake_cleanup.return_value = 2
+            run_worker(q, config, pool)
+        fake_cleanup.assert_called_once_with("/x/old.mkv", config)
+        fake_process.assert_called_once()
+
+    def test_swallows_process_video_exceptions(self, tmp_path: Path) -> None:
+        a = tmp_path / "a.mkv"; a.write_bytes(b"")
+        b = tmp_path / "b.mkv"; b.write_bytes(b"")
+        config = Config(languages=["en"])
+        config.webhook.lockfile = str(tmp_path / "test.lock")
+        q: _queue.Queue = _queue.Queue()
+        q.put(WebhookJob(video_path=str(a)))
+        q.put(WebhookJob(video_path=str(b)))
+        q.put(None)
+        pool = MagicMock()
+        with patch("bazarr_topn.webhook.process_video") as fake_process:
+            fake_process.side_effect = [RuntimeError("boom"), 3]
+            run_worker(q, config, pool)
+        assert fake_process.call_count == 2
+
+    def test_holds_lockfile_while_processing(self, tmp_path: Path) -> None:
+        import fcntl
+
+        lockpath = tmp_path / "test.lock"
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"\x00" * 16)  # exists() must return True
+        config = Config(languages=["en"])
+        config.webhook.lockfile = str(lockpath)
+        q: _queue.Queue = _queue.Queue()
+        q.put(WebhookJob(video_path=str(video_path)))
+        q.put(None)
+        pool = MagicMock()
+
+        # Pre-acquire the lock from the test thread
+        lockpath.touch()
+        holder = open(lockpath, "w")
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+
+        with patch("bazarr_topn.webhook.process_video") as fake_process:
+            fake_process.return_value = 0
+            t = threading.Thread(
+                target=run_worker, args=(q, config, pool), daemon=True
+            )
+            t.start()
+            _time.sleep(0.3)
+            assert fake_process.call_count == 0
+
+            fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
+            holder.close()
+            t.join(timeout=3)
+            assert not t.is_alive()
+            assert fake_process.call_count == 1

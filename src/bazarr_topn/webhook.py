@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hmac
 import logging
+import os
 import posixpath  # webhooks always carry forward-slash paths from arr
 import queue as _queue
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -14,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from bazarr_topn.config import Config
 from bazarr_topn.naming import existing_topn_subs
+from bazarr_topn.scanner import process_video
 from bazarr_topn.sidecar import sidecar_path
 
 logger = logging.getLogger(__name__)
@@ -266,3 +271,62 @@ def build_app(config: Config) -> tuple[FastAPI, _queue.Queue]:
         return {"status": "queued"}
 
     return app, job_queue
+
+
+@contextlib.contextmanager
+def _scan_lock(lockfile_path: str):
+    """Acquire an exclusive flock on `lockfile_path` for the duration of the with-block.
+
+    Blocks until the lock is available. The cron `--all` wrapper is expected
+    to take this same lock with `flock -n`, so cron and webhook scans
+    serialize naturally. We open the file in 'a+' so concurrent processes
+    don't truncate each other's lockfile, and we ensure parent dir exists.
+    """
+    parent = os.path.dirname(lockfile_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(lockfile_path, "a+") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def run_worker(job_queue: _queue.Queue, config: Config, pool) -> None:
+    """Drain WebhookJobs from `job_queue` serially.
+
+    Stops when the sentinel value `None` is received. For each job:
+    1. Acquire scan lockfile (blocks if cron --all is running).
+    2. For each deleted_paths entry, call cleanup_orphan_sidecars.
+    3. Call process_video with the new video path.
+    4. Release lockfile.
+
+    Exceptions in cleanup or process_video are logged and swallowed so the
+    worker drains the rest of the queue. (Mirrors VideoHandler._process_pending
+    behavior.)
+    """
+    while True:
+        job = job_queue.get()
+        if job is None:
+            return
+        try:
+            with _scan_lock(config.webhook.lockfile):
+                for old in job.deleted_paths:
+                    try:
+                        cleanup_orphan_sidecars(old, config)
+                    except Exception:
+                        logger.exception("Cleanup failed for %s", old)
+                video_path = Path(job.video_path)
+                if not video_path.exists():
+                    logger.warning(
+                        "Webhook target does not exist on disk (path mapping wrong?): %s",
+                        video_path,
+                    )
+                    continue
+                try:
+                    process_video(video_path, config, pool)
+                except Exception:
+                    logger.exception("process_video failed for %s", video_path)
+        finally:
+            job_queue.task_done()
