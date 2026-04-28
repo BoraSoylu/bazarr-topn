@@ -40,7 +40,7 @@ def setup_logging(level: str, log_file: str | None = None) -> None:
     console.addFilter(_QuietConsoleFilter())
     root.addHandler(console)
 
-    # File handler: full DEBUG output including all third-party internals
+    # File handler: DEBUG for our modules; noisy third-party loggers silenced to WARNING+
     if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +50,7 @@ def setup_logging(level: str, log_file: str | None = None) -> None:
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         ))
+        fh.addFilter(_QuietConsoleFilter())
         root.addHandler(fh)
 
 
