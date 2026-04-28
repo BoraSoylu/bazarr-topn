@@ -106,3 +106,38 @@ class TestPathMappings:
             {"container": "/media", "host": "/mnt/media"},
         ])
         assert config.map_path("/media/movies/Inception/Inception.mkv") == "/mnt/fast/movies/Inception/Inception.mkv"
+
+
+class TestWebhookConfig:
+    def test_defaults(self) -> None:
+        config = Config()
+        assert config.webhook.host == "127.0.0.1"
+        assert config.webhook.port == 9595
+        assert config.webhook.token == ""
+        assert config.webhook.lockfile == "/var/lock/bazarr-topn-scan.lock"
+
+    def test_loaded_from_yaml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WH_TOKEN", "secret-xyz")
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """\
+webhook:
+  host: 0.0.0.0
+  port: 8080
+  token: ${WH_TOKEN}
+  lockfile: /tmp/test.lock
+"""
+        )
+        config = Config.from_file(config_file)
+        assert config.webhook.host == "0.0.0.0"
+        assert config.webhook.port == 8080
+        assert config.webhook.token == "secret-xyz"
+        assert config.webhook.lockfile == "/tmp/test.lock"
+
+    def test_partial_yaml_keeps_defaults(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("webhook:\n  port: 7777\n")
+        config = Config.from_file(config_file)
+        assert config.webhook.port == 7777
+        assert config.webhook.host == "127.0.0.1"  # default kept
+        assert config.webhook.token == ""

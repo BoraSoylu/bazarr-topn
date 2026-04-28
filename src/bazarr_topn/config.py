@@ -78,8 +78,17 @@ class BazarrConfig:
 
 
 @dataclass
+class WebhookConfig:
+    host: str = "127.0.0.1"
+    port: int = 9595
+    token: str = ""
+    lockfile: str = "/var/lock/bazarr-topn-scan.lock"
+
+
+@dataclass
 class Config:
     bazarr: BazarrConfig = field(default_factory=BazarrConfig)
+    webhook: WebhookConfig = field(default_factory=WebhookConfig)
     languages: list[str] = field(default_factory=lambda: ["en"])
     top_n: int = 10
     min_score: int = 30
@@ -124,6 +133,14 @@ class Config:
             api_key=bazarr_raw.get("api_key", ""),
         )
 
+        webhook_raw = data.get("webhook", {})
+        webhook = WebhookConfig(
+            host=webhook_raw.get("host", "127.0.0.1"),
+            port=webhook_raw.get("port", 9595),
+            token=webhook_raw.get("token", ""),
+            lockfile=webhook_raw.get("lockfile", "/var/lock/bazarr-topn-scan.lock"),
+        )
+
         providers = []
         for p in data.get("providers", []):
             providers.append(
@@ -148,6 +165,7 @@ class Config:
 
         return cls(
             bazarr=bazarr,
+            webhook=webhook,
             languages=data.get("languages", ["en"]),
             top_n=data.get("top_n", 10),
             min_score=data.get("min_score", 30),
