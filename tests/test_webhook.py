@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import queue as _queue
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from bazarr_topn.config import Config
 from bazarr_topn.webhook import (
     SonarrPayload,
     RadarrPayload,
     WebhookJob,
+    build_app,
     cleanup_orphan_sidecars,
     resolve_sonarr_video_path,
     resolve_radarr_video_path,
@@ -324,3 +328,153 @@ class TestWebhookJob:
     def test_construct_upgrade(self) -> None:
         job = WebhookJob(video_path="/x/new.mkv", deleted_paths=["/x/old.mkv"])
         assert job.is_upgrade is True
+
+
+def _config_with_token(token: str = "secret") -> Config:
+    config = Config()
+    config.webhook.token = token
+    return config
+
+
+class TestAuth:
+    def test_missing_token_returns_401(self) -> None:
+        config = _config_with_token()
+        app, _q = build_app(config)
+        client = TestClient(app)
+        r = client.post("/sonarr", json=SONARR_DOWNLOAD)
+        assert r.status_code == 401
+
+    def test_wrong_token_returns_401(self) -> None:
+        config = _config_with_token()
+        app, _q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/sonarr",
+            json=SONARR_DOWNLOAD,
+            headers={"X-Webhook-Token": "wrong"},
+        )
+        assert r.status_code == 401
+
+    def test_correct_token_returns_200(self) -> None:
+        config = _config_with_token()
+        app, _q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/sonarr",
+            json=SONARR_DOWNLOAD,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 200
+
+    def test_healthz_does_not_require_auth(self) -> None:
+        config = _config_with_token()
+        app, _q = build_app(config)
+        client = TestClient(app)
+        r = client.get("/healthz")
+        assert r.status_code == 200
+        assert r.json() == {"status": "ok"}
+
+
+class TestRouting:
+    def test_sonarr_download_enqueues_job(self) -> None:
+        config = _config_with_token()
+        app, q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/sonarr",
+            json=SONARR_DOWNLOAD,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 200
+        assert q.qsize() == 1
+        job = q.get_nowait()
+        assert job.video_path == "/media/tv/Test Show/Season 01/Test Show - S01E01.mkv"
+        assert job.deleted_paths == []
+
+    def test_sonarr_upgrade_enqueues_job_with_deleted(self) -> None:
+        config = _config_with_token()
+        app, q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/sonarr",
+            json=SONARR_UPGRADE,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 200
+        job = q.get_nowait()
+        assert job.is_upgrade is True
+        assert len(job.deleted_paths) == 1
+
+    def test_radarr_download_enqueues_job(self) -> None:
+        config = _config_with_token()
+        app, q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/radarr",
+            json=RADARR_DOWNLOAD,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 200
+        job = q.get_nowait()
+        assert job.video_path == "/media/movies/Test Movie (2024)/Test Movie (2024).mkv"
+
+    def test_test_event_returns_200_without_enqueueing(self) -> None:
+        config = _config_with_token()
+        app, q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/sonarr",
+            json=SONARR_TEST,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 200
+        assert q.qsize() == 0
+
+        r2 = client.post(
+            "/radarr",
+            json=RADARR_TEST,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r2.status_code == 200
+        assert q.qsize() == 0
+
+    def test_path_mapping_applied(self) -> None:
+        config = _config_with_token()
+        config.path_mappings = [{"container": "/media", "host": "/mnt/media"}]
+        app, q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/sonarr",
+            json=SONARR_DOWNLOAD,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 200
+        job = q.get_nowait()
+        assert job.video_path.startswith("/mnt/media/tv/")
+
+    def test_malformed_payload_returns_422(self) -> None:
+        config = _config_with_token()
+        app, _q = build_app(config)
+        client = TestClient(app)
+        r = client.post(
+            "/sonarr",
+            json={"not": "a real payload"},
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 422
+
+    def test_unknown_event_type_returns_200_without_enqueueing(self) -> None:
+        """Sonarr/Radarr have many event types we don't care about (Grab,
+        Health, etc.). The receiver must accept them with 200 to avoid
+        triggering retries on the *arr side."""
+        config = _config_with_token()
+        app, q = build_app(config)
+        client = TestClient(app)
+        payload = {**SONARR_DOWNLOAD, "eventType": "Grab"}
+        r = client.post(
+            "/sonarr",
+            json=payload,
+            headers={"X-Webhook-Token": "secret"},
+        )
+        assert r.status_code == 200
+        assert q.qsize() == 0

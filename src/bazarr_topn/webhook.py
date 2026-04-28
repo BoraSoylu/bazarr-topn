@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import posixpath  # webhooks always carry forward-slash paths from arr
+import queue as _queue
 from dataclasses import dataclass, field
 from typing import Optional
 
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from bazarr_topn.config import Config
@@ -193,3 +196,73 @@ class WebhookJob:
     @property
     def is_upgrade(self) -> bool:
         return bool(self.deleted_paths)
+
+
+def _make_auth_dependency(expected_token: str):
+    """Build a FastAPI dependency that constant-time-compares X-Webhook-Token."""
+
+    def verify_token(x_webhook_token: str = Header(default="")) -> None:
+        if not expected_token or not hmac.compare_digest(x_webhook_token, expected_token):
+            # No INFO log — avoids spam if a misconfigured *arr keeps retrying.
+            raise HTTPException(status_code=401, detail="invalid webhook token")
+
+    return verify_token
+
+
+def build_app(config: Config) -> tuple[FastAPI, _queue.Queue]:
+    """Build the FastAPI app and the job queue it feeds.
+
+    The queue is returned so callers (`serve` and tests) can attach a worker
+    to it. Tests assert on queue contents directly without spinning a worker.
+    """
+    job_queue: _queue.Queue = _queue.Queue()
+    auth = _make_auth_dependency(config.webhook.token)
+
+    app = FastAPI(title="bazarr-topn webhook receiver")
+
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.post("/sonarr", dependencies=[Depends(auth)])
+    def sonarr(payload: SonarrPayload) -> dict[str, str]:
+        if payload.event_type == "Test":
+            return {"status": "ok"}
+        if payload.event_type != "Download":
+            # Quietly accept unknown event types; *arr won't retry on 200.
+            logger.debug("Sonarr: ignoring eventType=%s", payload.event_type)
+            return {"status": "ok"}
+        video = resolve_sonarr_video_path(payload, config)
+        if video is None:
+            logger.warning("Sonarr download payload missing episodeFile; skipping")
+            return {"status": "ok"}
+        deleted = resolve_sonarr_deleted_paths(payload, config)
+        job = WebhookJob(video_path=video, deleted_paths=deleted)
+        job_queue.put(job)
+        logger.info(
+            "Sonarr: queued %s (upgrade=%s, %d deleted)",
+            video, job.is_upgrade, len(deleted),
+        )
+        return {"status": "queued"}
+
+    @app.post("/radarr", dependencies=[Depends(auth)])
+    def radarr(payload: RadarrPayload) -> dict[str, str]:
+        if payload.event_type == "Test":
+            return {"status": "ok"}
+        if payload.event_type != "Download":
+            logger.debug("Radarr: ignoring eventType=%s", payload.event_type)
+            return {"status": "ok"}
+        video = resolve_radarr_video_path(payload, config)
+        if video is None:
+            logger.warning("Radarr download payload missing movieFile; skipping")
+            return {"status": "ok"}
+        deleted = resolve_radarr_deleted_paths(payload, config)
+        job = WebhookJob(video_path=video, deleted_paths=deleted)
+        job_queue.put(job)
+        logger.info(
+            "Radarr: queued %s (upgrade=%s, %d deleted)",
+            video, job.is_upgrade, len(deleted),
+        )
+        return {"status": "queued"}
+
+    return app, job_queue
