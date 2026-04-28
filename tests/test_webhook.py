@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from bazarr_topn.config import Config
 from bazarr_topn.webhook import (
     SonarrPayload,
     RadarrPayload,
+    cleanup_orphan_sidecars,
     resolve_sonarr_video_path,
     resolve_radarr_video_path,
     resolve_sonarr_deleted_paths,
@@ -256,11 +259,6 @@ class TestResolveDeletedPaths:
     def test_no_deleted_files_returns_empty(self) -> None:
         p = SonarrPayload.model_validate(SONARR_DOWNLOAD)
         assert resolve_sonarr_deleted_paths(p, Config()) == []
-
-
-from pathlib import Path
-
-from bazarr_topn.webhook import cleanup_orphan_sidecars
 
 
 class TestCleanupOrphanSidecars:

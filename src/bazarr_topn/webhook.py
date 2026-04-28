@@ -9,6 +9,8 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from bazarr_topn.config import Config
+from bazarr_topn.naming import existing_topn_subs
+from bazarr_topn.sidecar import sidecar_path
 
 logger = logging.getLogger(__name__)
 
@@ -142,12 +144,6 @@ def resolve_radarr_deleted_paths(payload: RadarrPayload, config: Config) -> list
         raw = f.path or _join_arr_path(payload.movie.folder_path, f.relative_path)
         out.append(config.map_path(raw))
     return out
-
-
-from pathlib import Path
-
-from bazarr_topn.naming import existing_topn_subs
-from bazarr_topn.sidecar import sidecar_path
 
 
 def cleanup_orphan_sidecars(old_video_path: str, config: Config) -> int:
