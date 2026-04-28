@@ -564,3 +564,70 @@ class TestWorker:
             t.join(timeout=3)
             assert not t.is_alive()
             assert fake_process.call_count == 1
+
+
+class TestEndToEndIntegration:
+    def test_24_events_drain_through_worker(self, tmp_path: Path) -> None:
+        """Season-pack burst: 24 episodes posted in rapid succession.
+
+        Each POST returns 200 fast. The worker drains all 24 in order.
+        """
+        config = _config_with_token()
+        config.languages = ["en"]
+        config.webhook.lockfile = str(tmp_path / "scan.lock")
+
+        # Create 24 fake episode files under the path Sonarr would report
+        series_dir = tmp_path / "Test Show" / "Season 01"
+        series_dir.mkdir(parents=True)
+        episode_files: list[Path] = []
+        for i in range(1, 25):
+            f = series_dir / f"Test Show - S01E{i:02d}.mkv"
+            f.write_bytes(b"\x00" * 16)
+            episode_files.append(f)
+
+        # Path mapping: webhook reports /media/tv/...; we host them in tmp_path
+        config.path_mappings = [
+            {"container": "/media/tv/Test Show", "host": str(tmp_path / "Test Show")}
+        ]
+
+        app, job_queue = build_app(config)
+        pool = MagicMock()
+        worker = threading.Thread(
+            target=run_worker, args=(job_queue, config, pool), daemon=True,
+        )
+        worker.start()
+
+        client = TestClient(app)
+        with patch("bazarr_topn.webhook.process_video") as fake_process:
+            fake_process.return_value = 5
+            for i in range(1, 25):
+                payload = {
+                    "eventType": "Download",
+                    "isUpgrade": False,
+                    "series": {"path": "/media/tv/Test Show", "title": "Test Show"},
+                    "episodes": [
+                        {"id": i, "episodeNumber": i, "seasonNumber": 1, "title": f"E{i}"},
+                    ],
+                    "episodeFile": {
+                        "relativePath": f"Season 01/Test Show - S01E{i:02d}.mkv",
+                        "path": f"/media/tv/Test Show/Season 01/Test Show - S01E{i:02d}.mkv",
+                    },
+                }
+                r = client.post(
+                    "/sonarr",
+                    json=payload,
+                    headers={"X-Webhook-Token": "secret"},
+                )
+                assert r.status_code == 200
+
+            # Wait for worker to drain.
+            job_queue.join()
+            # Stop the worker.
+            job_queue.put(None)
+            worker.join(timeout=3)
+
+        assert fake_process.call_count == 24
+        # Order preserved: E01..E24
+        called_paths = [str(c.args[0]) for c in fake_process.call_args_list]
+        for i, p in enumerate(called_paths, start=1):
+            assert p.endswith(f"S01E{i:02d}.mkv")
