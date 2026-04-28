@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -98,3 +99,41 @@ class TestQuietConsoleFilter:
 
     def test_passes_ffsubsync_warning(self) -> None:
         assert self.filt.filter(self._record("ffsubsync", logging.WARNING))
+
+
+class TestServeCommand:
+    def test_serve_help(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(main, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "--host" in result.output
+        assert "--port" in result.output
+
+    def test_serve_calls_webhook_serve(self, sample_config_yaml: Path, monkeypatch) -> None:
+        # Set the token so serve() does not abort
+        with patch("bazarr_topn.webhook.serve") as fake_serve:
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                ["-c", str(sample_config_yaml), "serve"],
+                env={"PYTHONUNBUFFERED": "1"},
+            )
+        assert result.exit_code == 0, result.output
+        fake_serve.assert_called_once()
+        # The Config passed in should reflect default webhook host/port
+        call_config = fake_serve.call_args.args[0]
+        assert call_config.webhook.host == "127.0.0.1"
+        assert call_config.webhook.port == 9595
+
+    def test_serve_overrides_host_and_port(self, sample_config_yaml: Path) -> None:
+        with patch("bazarr_topn.webhook.serve") as fake_serve:
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                ["-c", str(sample_config_yaml), "serve",
+                 "--host", "0.0.0.0", "--port", "8181"],
+            )
+        assert result.exit_code == 0, result.output
+        call_config = fake_serve.call_args.args[0]
+        assert call_config.webhook.host == "0.0.0.0"
+        assert call_config.webhook.port == 8181
