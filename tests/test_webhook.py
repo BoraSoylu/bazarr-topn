@@ -256,3 +256,60 @@ class TestResolveDeletedPaths:
     def test_no_deleted_files_returns_empty(self) -> None:
         p = SonarrPayload.model_validate(SONARR_DOWNLOAD)
         assert resolve_sonarr_deleted_paths(p, Config()) == []
+
+
+from pathlib import Path
+
+from bazarr_topn.webhook import cleanup_orphan_sidecars
+
+
+class TestCleanupOrphanSidecars:
+    def test_deletes_topn_srts_and_sidecar_for_one_language(self, tmp_path: Path) -> None:
+        old_video = tmp_path / "Old.mkv"
+        # We never need the old video to exist on disk — just its siblings.
+        (tmp_path / "Old.en.topn-02.srt").write_text("a")
+        (tmp_path / "Old.en.topn-03.srt").write_text("b")
+        (tmp_path / "Old.en.topn.json").write_text("{}")
+        # Unrelated files we must NOT touch
+        (tmp_path / "Old.en.srt").write_text("bazarr's original — keep")
+        (tmp_path / "Other.mkv").write_text("unrelated")
+        (tmp_path / "Other.en.topn-02.srt").write_text("unrelated topn")
+
+        config = Config(
+            languages=["en"],
+            naming_pattern="{video_stem}.{lang}.topn-{rank}.srt",
+        )
+        removed = cleanup_orphan_sidecars(str(old_video), config)
+
+        assert removed == 3
+        assert not (tmp_path / "Old.en.topn-02.srt").exists()
+        assert not (tmp_path / "Old.en.topn-03.srt").exists()
+        assert not (tmp_path / "Old.en.topn.json").exists()
+        # Untouched
+        assert (tmp_path / "Old.en.srt").exists()
+        assert (tmp_path / "Other.en.topn-02.srt").exists()
+
+    def test_handles_multiple_languages(self, tmp_path: Path) -> None:
+        old_video = tmp_path / "Old.mkv"
+        (tmp_path / "Old.en.topn-02.srt").write_text("a")
+        (tmp_path / "Old.en.topn.json").write_text("{}")
+        (tmp_path / "Old.tr.topn-02.srt").write_text("a")
+        (tmp_path / "Old.tr.topn.json").write_text("{}")
+
+        config = Config(
+            languages=["en", "tr"],
+            naming_pattern="{video_stem}.{lang}.topn-{rank}.srt",
+        )
+        removed = cleanup_orphan_sidecars(str(old_video), config)
+
+        assert removed == 4
+        assert list(tmp_path.iterdir()) == []  # everything cleaned
+
+    def test_missing_files_are_ok(self, tmp_path: Path) -> None:
+        old_video = tmp_path / "DoesNotExist.mkv"
+        config = Config(
+            languages=["en"],
+            naming_pattern="{video_stem}.{lang}.topn-{rank}.srt",
+        )
+        # Should not raise; nothing to delete.
+        assert cleanup_orphan_sidecars(str(old_video), config) == 0

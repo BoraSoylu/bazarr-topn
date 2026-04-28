@@ -142,3 +142,40 @@ def resolve_radarr_deleted_paths(payload: RadarrPayload, config: Config) -> list
         raw = f.path or _join_arr_path(payload.movie.folder_path, f.relative_path)
         out.append(config.map_path(raw))
     return out
+
+
+from pathlib import Path
+
+from bazarr_topn.naming import existing_topn_subs
+from bazarr_topn.sidecar import sidecar_path
+
+
+def cleanup_orphan_sidecars(old_video_path: str, config: Config) -> int:
+    """Delete topn-N srt files and topn.json sidecars keyed to a replaced video.
+
+    On a Sonarr/Radarr Upgrade, the old episode/movie file gets replaced by a
+    new one with a different stem (e.g. quality bump). The topn sidecars
+    we wrote for the old stem are now orphaned. This helper removes them
+    across every configured language.
+
+    Returns:
+        Number of files actually deleted.
+    """
+    removed = 0
+    for lang in config.languages:
+        for srt in existing_topn_subs(old_video_path, lang, config.naming_pattern):
+            try:
+                srt.unlink()
+                removed += 1
+                logger.debug("Removed orphan topn srt: %s", srt)
+            except OSError as e:
+                logger.debug("Could not remove %s: %s", srt, e)
+        json_path = sidecar_path(old_video_path, lang)
+        if json_path.exists():
+            try:
+                json_path.unlink()
+                removed += 1
+                logger.debug("Removed orphan topn sidecar: %s", json_path)
+            except OSError as e:
+                logger.debug("Could not remove %s: %s", json_path, e)
+    return removed
