@@ -9,6 +9,7 @@ import logging
 import os
 import posixpath  # webhooks always carry forward-slash paths from arr
 import queue as _queue
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -20,6 +21,7 @@ from bazarr_topn.config import Config
 from bazarr_topn.naming import existing_topn_subs
 from bazarr_topn.scanner import process_video
 from bazarr_topn.sidecar import sidecar_path
+from bazarr_topn.subtitle_finder import configure_cache, create_pool
 
 logger = logging.getLogger(__name__)
 
@@ -330,3 +332,47 @@ def run_worker(job_queue: _queue.Queue, config: Config, pool) -> None:
                     logger.exception("process_video failed for %s", video_path)
         finally:
             job_queue.task_done()
+
+
+def serve(config: Config) -> None:
+    """Run the webhook receiver. Blocks until interrupted (e.g. SIGTERM).
+
+    Mirrors `watcher.watch(config)`: a single ProviderPool is opened for the
+    server's lifetime — one provider login reused across every webhook event.
+    The worker is a daemon thread; uvicorn runs in the main thread.
+    """
+    import uvicorn
+
+    if not config.webhook.token:
+        raise SystemExit(
+            "webhook.token is empty. Set it in config.yaml (e.g. via "
+            "${BAZARR_TOPN_WEBHOOK_TOKEN} env var)."
+        )
+
+    configure_cache()
+
+    with create_pool(config) as pool:
+        app, job_queue = build_app(config)
+        worker_thread = threading.Thread(
+            target=run_worker, args=(job_queue, config, pool), daemon=True,
+            name="bazarr-topn-webhook-worker",
+        )
+        worker_thread.start()
+
+        logger.info(
+            "Starting webhook receiver on %s:%d",
+            config.webhook.host, config.webhook.port,
+        )
+        # log_config=None lets bazarr-topn's logger config (already set up by
+        # cli.setup_logging) own all output. Otherwise uvicorn re-applies its
+        # own root handler.
+        uvicorn.run(
+            app,
+            host=config.webhook.host,
+            port=config.webhook.port,
+            log_config=None,
+            access_log=False,
+        )
+        # On uvicorn return (Ctrl+C / SIGTERM), tell the worker to stop.
+        job_queue.put(None)
+        worker_thread.join(timeout=5)
