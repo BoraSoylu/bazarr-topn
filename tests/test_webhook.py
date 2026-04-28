@@ -631,3 +631,86 @@ class TestEndToEndIntegration:
         called_paths = [str(c.args[0]) for c in fake_process.call_args_list]
         for i, p in enumerate(called_paths, start=1):
             assert p.endswith(f"S01E{i:02d}.mkv")
+
+    def test_upgrade_event_cleans_orphans_then_processes(self, tmp_path: Path) -> None:
+        """Sonarr upgrade event: orphan sidecars deleted, then process_video called once.
+
+        Setup: a "Show - S01E01.mkv" file exists with a topn sidecar set
+        from the previous (lower-quality) version. Sonarr fires an upgrade
+        webhook with the new file path and the old file in deletedFiles.
+        Assert: old sidecar files are gone, the unrelated keep-me file
+        survives, process_video is invoked once with the new path.
+        """
+        config = _config_with_token()
+        config.languages = ["en"]
+        config.webhook.lockfile = str(tmp_path / "scan.lock")
+        config.naming_pattern = "{video_stem}.{lang}.topn-{rank}.srt"
+
+        season = tmp_path / "Season 01"
+        season.mkdir()
+        old_stem = "Test Show - S01E01.WEBDL-1080p"
+        new_stem = "Test Show - S01E01.WEBDL-2160p"
+        new_file = season / f"{new_stem}.mkv"
+        new_file.write_bytes(b"\x00" * 16)
+
+        # Pre-existing orphans (will be deleted)
+        (season / f"{old_stem}.en.topn-02.srt").write_text("a")
+        (season / f"{old_stem}.en.topn-03.srt").write_text("b")
+        (season / f"{old_stem}.en.topn.json").write_text("{}")
+        # Keep-me marker
+        keep = season / f"{new_stem}.en.srt"
+        keep.write_text("bazarr's original")
+
+        config.path_mappings = [
+            {"container": "/media/tv/Show", "host": str(tmp_path)},
+        ]
+
+        app, job_queue = build_app(config)
+        pool = MagicMock()
+        worker = threading.Thread(
+            target=run_worker, args=(job_queue, config, pool), daemon=True,
+        )
+        worker.start()
+
+        upgrade_payload = {
+            "eventType": "Download",
+            "isUpgrade": True,
+            "series": {"path": "/media/tv/Show", "title": "Test Show"},
+            "episodes": [
+                {"id": 1, "episodeNumber": 1, "seasonNumber": 1, "title": "Pilot"},
+            ],
+            "episodeFile": {
+                "relativePath": f"Season 01/{new_stem}.mkv",
+                "path": f"/media/tv/Show/Season 01/{new_stem}.mkv",
+            },
+            "deletedFiles": [
+                {
+                    "relativePath": f"Season 01/{old_stem}.mkv",
+                    "path": f"/media/tv/Show/Season 01/{old_stem}.mkv",
+                }
+            ],
+        }
+
+        client = TestClient(app)
+        with patch("bazarr_topn.webhook.process_video") as fake_process:
+            fake_process.return_value = 5
+            r = client.post(
+                "/sonarr",
+                json=upgrade_payload,
+                headers={"X-Webhook-Token": "secret"},
+            )
+            assert r.status_code == 200
+            job_queue.join()
+            job_queue.put(None)
+            worker.join(timeout=3)
+
+        # Old sidecars gone
+        assert not (season / f"{old_stem}.en.topn-02.srt").exists()
+        assert not (season / f"{old_stem}.en.topn-03.srt").exists()
+        assert not (season / f"{old_stem}.en.topn.json").exists()
+        # Keep-me untouched
+        assert keep.exists()
+        # process_video called exactly once with the new path
+        assert fake_process.call_count == 1
+        called_path = fake_process.call_args.args[0]
+        assert str(called_path) == str(new_file)
