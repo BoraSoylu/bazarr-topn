@@ -10,7 +10,7 @@ from subliminal.core import ProviderPool
 
 from bazarr_topn.config import Config
 from bazarr_topn.naming import clean_existing_topn
-from bazarr_topn.sidecar import SidecarData, is_topn_done, write_sidecar
+from bazarr_topn.sidecar import SidecarData, is_topn_done, read_sidecar, write_sidecar
 from bazarr_topn.subtitle_finder import configure_cache, create_pool, download_top_n, scan_video
 from bazarr_topn.sync import sync_batch
 
@@ -105,11 +105,20 @@ def process_video(
 
         # Write sidecar regardless of outcome
         if config.topn_sidecar_enabled:
+            saved_count = len(result.saved_paths)
+            clean_value = result.clean
+            if result.no_new_candidates:
+                # Search confirmed no new content beyond existing sidecar.
+                # Preserve the existing saved/clean — no files were written.
+                existing = read_sidecar(video_path, lang_code)
+                if existing is not None:
+                    saved_count = existing.saved
+                    clean_value = existing.clean
             sidecar_data = SidecarData(
                 target=config.top_n,
-                saved=len(result.saved_paths),
+                saved=saved_count,
                 available=result.available_count,
-                clean=result.clean,
+                clean=clean_value,
                 search_ok=result.search_ok,
             )
             write_sidecar(video_path, lang_code, sidecar_data)

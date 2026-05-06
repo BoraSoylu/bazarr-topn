@@ -22,6 +22,7 @@ from subliminal.subtitle import Subtitle
 
 from bazarr_topn.config import Config
 from bazarr_topn.naming import subtitle_path
+from bazarr_topn.sidecar import read_sidecar
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,11 @@ class DownloadResult:
     clean: bool
     available_count: int
     search_ok: bool = True
+    # True when search succeeded but returned no candidates beyond what the
+    # existing sidecar already records as saved. Caller must preserve the
+    # existing sidecar's saved/clean fields (no new files were written, so
+    # len(saved_paths)==0 here would otherwise wipe out the prior count).
+    no_new_candidates: bool = False
 
 
 def scan_video(video_path: str | Path) -> Video:
@@ -306,6 +312,23 @@ def download_top_n(
     max_try = config.max_candidates_tried
     if max_try > 0 and len(candidates) > max_try:
         candidates = candidates[:max_try]
+
+    # Quota-saver: if a clean prior run already saved at least as many subs
+    # as this search returned, there's nothing new to download — skip and let
+    # the caller preserve the existing sidecar's saved/clean values.
+    existing = read_sidecar(video_path, lang_str)
+    if existing is not None and existing.clean and existing.saved >= len(candidates):
+        logger.info(
+            "  Skipping download [%s]: existing %d subs >= %d candidates, no new content",
+            lang_str, existing.saved, len(candidates),
+        )
+        return DownloadResult(
+            saved_paths=[],
+            clean=True,
+            available_count=unfiltered_count,
+            search_ok=True,
+            no_new_candidates=True,
+        )
 
     # Target: how many we want to save
     target = config.top_n

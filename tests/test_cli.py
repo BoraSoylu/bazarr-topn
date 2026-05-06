@@ -56,13 +56,6 @@ class TestCLI:
         assert "0/0 videos processed" in result.output
 
 
-class TestRescanStaleFlag:
-    def test_rescan_stale_help(self) -> None:
-        runner = CliRunner()
-        result = runner.invoke(main, ["scan", "--help"])
-        assert "--rescan-stale" in result.output
-
-
 class TestQuietConsoleFilter:
     def setup_method(self) -> None:
         self.filt = _QuietConsoleFilter()

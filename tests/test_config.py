@@ -74,10 +74,6 @@ class TestConfigDefaults:
 
 
 class TestNewConfigDefaults:
-    def test_topn_recheck_days_default(self) -> None:
-        config = Config()
-        assert config.topn_recheck_days == 3
-
     def test_topn_sidecar_enabled_default(self) -> None:
         config = Config()
         assert config.topn_sidecar_enabled is True

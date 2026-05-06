@@ -32,7 +32,6 @@ def cfg() -> Config:
         languages=["en"],
         top_n=10,
         min_score=0,
-        topn_recheck_days=30,
         topn_sidecar_enabled=True,
     )
 
@@ -115,20 +114,24 @@ class TestIsTopnDone:
         self._write(video, "en", target=10, saved=10, available=15, clean=True)
         assert is_topn_done(video, "en", cfg) is True
 
-    def test_clean_niche_is_done(self, video: Path, cfg: Config) -> None:
-        """available < target, but saved == available and clean — done."""
-        self._write(video, "en", target=10, saved=3, available=3, clean=True)
-        assert is_topn_done(video, "en", cfg) is True
+    def test_clean_niche_not_done(self, video: Path, cfg: Config) -> None:
+        """saved < top_n: keep searching every scan (free), even if available is small.
 
-    def test_available_zero_saved_zero_clean_search_ok_is_done(
+        download_top_n suppresses the actual download when search returns
+        no new candidates beyond saved.
+        """
+        self._write(video, "en", target=10, saved=3, available=3, clean=True)
+        assert is_topn_done(video, "en", cfg) is False
+
+    def test_available_zero_saved_zero_not_done(
         self, video: Path, cfg: Config
     ) -> None:
-        """v2 sidecar: genuinely no Turkish subs exist — is_topn_done returns True."""
+        """saved=0 < top_n: not done, will retry searching."""
         self._write(
             video, "en",
             target=10, saved=0, available=0, clean=True, search_ok=True,
         )
-        assert is_topn_done(video, "en", cfg) is True
+        assert is_topn_done(video, "en", cfg) is False
 
     def test_v1_legacy_sidecar_not_done(self, video: Path, cfg: Config) -> None:
         """Legacy v1 sidecar (no schema_version, no search_ok) is never done."""
@@ -179,26 +182,20 @@ class TestIsTopnDone:
         assert is_topn_done(video, "en", cfg) is False
 
     def test_target_upgraded_not_done(self, video: Path, cfg: Config) -> None:
-        """User raised top_n since last run."""
+        """User raised top_n since last run — saved=5 from old top_n=5 is now < new top_n=10."""
         self._write(video, "en", target=5, saved=5, available=15, clean=True)
         assert is_topn_done(video, "en", cfg) is False
 
     def test_partial_with_candidates_remaining_not_done(self, video: Path, cfg: Config) -> None:
-        """saved < min(target, available) — partial failure."""
+        """saved < top_n — partial failure or in progress."""
         self._write(video, "en", target=10, saved=3, available=15, clean=True)
         assert is_topn_done(video, "en", cfg) is False
 
-    def test_stale_sidecar_not_done(self, video: Path, cfg: Config) -> None:
-        """Sidecar older than topn_recheck_days."""
-        old = datetime.now(timezone.utc) - timedelta(days=31)
+    def test_age_irrelevant_when_complete(self, video: Path, cfg: Config) -> None:
+        """Sidecars never expire — once saved>=top_n & clean, stay done forever."""
+        old = datetime.now(timezone.utc) - timedelta(days=365)
         self._write(video, "en", target=10, saved=10, available=15, clean=True,
                     completed_at=old.isoformat())
-        assert is_topn_done(video, "en", cfg) is False
-
-    def test_fresh_sidecar_within_recheck_window(self, video: Path, cfg: Config) -> None:
-        recent = datetime.now(timezone.utc) - timedelta(days=15)
-        self._write(video, "en", target=10, saved=10, available=15, clean=True,
-                    completed_at=recent.isoformat())
         assert is_topn_done(video, "en", cfg) is True
 
     def test_sidecar_disabled_always_not_done(self, video: Path, cfg: Config) -> None:

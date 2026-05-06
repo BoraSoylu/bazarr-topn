@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from bazarr_topn.config import Config
@@ -95,9 +95,12 @@ def is_topn_done(video_path: str | Path, lang: str, config: Config) -> bool:
     3. schema_version >= 2 (v1 legacy always rejected)
     4. search_ok is True (search actually completed)
     5. clean is True (all attempted downloads succeeded)
-    6. saved >= min(target, available)
-    7. target >= config.top_n (user hasn't raised the target)
-    8. completed_at within config.topn_recheck_days
+    6. saved >= config.top_n (we already saved the full target)
+
+    Once a video has the full top_n saved cleanly, it is considered done
+    forever — no re-search, no re-download. Partial sidecars (saved < top_n)
+    are re-searched every scan; download is suppressed at that layer when
+    the search returns no new candidates beyond what is already saved.
     """
     if not config.topn_sidecar_enabled:
         return False
@@ -118,20 +121,7 @@ def is_topn_done(video_path: str | Path, lang: str, config: Config) -> bool:
     if not data.clean:
         return False
 
-    if data.saved < min(data.target, data.available):
-        return False
-
-    if data.target < config.top_n:
-        return False
-
-    try:
-        completed = datetime.fromisoformat(data.completed_at)
-        if completed.tzinfo is None:
-            completed = completed.replace(tzinfo=timezone.utc)
-        age = datetime.now(timezone.utc) - completed
-        if age > timedelta(days=config.topn_recheck_days):
-            return False
-    except (ValueError, TypeError):
+    if data.saved < config.top_n:
         return False
 
     return True

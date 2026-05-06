@@ -11,6 +11,7 @@ import pytest
 from babelfish import Language
 
 from bazarr_topn.config import Config
+from bazarr_topn.sidecar import SidecarData, write_sidecar
 from bazarr_topn.subtitle_finder import DownloadResult, download_top_n, find_subtitles
 
 
@@ -276,6 +277,132 @@ class TestDeepCandidateIteration:
         assert isinstance(result, DownloadResult)
         assert result.saved_paths == []
         assert result.clean is False
+
+
+class TestNoNewCandidatesSkip:
+    """Quota-saver: skip download when prior sidecar already has >= candidate count.
+
+    Search is free on OpenSubtitles; downloads count against quota. So when a
+    partial sidecar already records as many saved subs as a fresh search
+    returns, there's nothing new to download.
+    """
+
+    def test_skips_download_when_existing_saved_equals_candidates(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        # Existing sidecar: clean=True, saved=2 (under target=3)
+        write_sidecar(
+            video_path, "en",
+            SidecarData(target=3, saved=2, available=2, clean=True),
+        )
+        # Search returns 2 candidates — same count as already saved.
+        pool = FakePool(subtitles_to_return=[
+            FakeSubtitle("opensubtitlescom"),
+            FakeSubtitle("opensubtitlescom"),
+        ])
+
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+
+        assert result.no_new_candidates is True
+        assert result.saved_paths == []
+        assert result.clean is True
+        assert result.search_ok is True
+        assert result.available_count == 2
+        # Critical: NO downloads attempted
+        assert pool.download_calls == 0
+
+    def test_skips_download_when_existing_saved_exceeds_candidates(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        """Available shrunk since last scan — still skip."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        write_sidecar(
+            video_path, "en",
+            SidecarData(target=3, saved=3, available=5, clean=True),
+        )
+        pool = FakePool(subtitles_to_return=[FakeSubtitle("opensubtitlescom")])
+
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+
+        assert result.no_new_candidates is True
+        assert pool.download_calls == 0
+
+    def test_proceeds_when_more_candidates_than_existing_saved(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        """New candidates appeared — download (existing behavior)."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        write_sidecar(
+            video_path, "en",
+            SidecarData(target=3, saved=1, available=1, clean=True),
+        )
+        pool = FakePool(subtitles_to_return=[
+            FakeSubtitle("opensubtitlescom"),
+            FakeSubtitle("opensubtitlescom"),
+            FakeSubtitle("opensubtitlescom"),
+        ])
+
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+
+        assert result.no_new_candidates is False
+        assert len(result.saved_paths) == 3
+        assert pool.download_calls == 3
+
+    def test_proceeds_when_no_existing_sidecar(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        """First-time scan — no existing sidecar, must download."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(subtitles_to_return=[
+            FakeSubtitle("opensubtitlescom"),
+            FakeSubtitle("opensubtitlescom"),
+        ])
+
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+
+        assert result.no_new_candidates is False
+        assert len(result.saved_paths) == 2
+        assert pool.download_calls == 2
+
+    def test_proceeds_when_existing_sidecar_unclean(
+        self, tmp_path: Path, no_delay_config: Config
+    ) -> None:
+        """clean=False means prior run was rate-limited mid-batch — retry."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        write_sidecar(
+            video_path, "en",
+            SidecarData(target=3, saved=2, available=2, clean=False),
+        )
+        pool = FakePool(subtitles_to_return=[
+            FakeSubtitle("opensubtitlescom"),
+            FakeSubtitle("opensubtitlescom"),
+        ])
+
+        result = download_top_n(
+            MagicMock(), video_path, Language.fromalpha2("en"),
+            no_delay_config, pool,
+        )
+
+        assert result.no_new_candidates is False
+        assert pool.download_calls == 2
 
     def test_max_candidates_tried_cap(self, tmp_path: Path) -> None:
         video_path = tmp_path / "movie.mkv"

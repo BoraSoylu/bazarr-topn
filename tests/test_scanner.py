@@ -18,7 +18,7 @@ def _make_config(**overrides) -> Config:
         naming_pattern="{video_stem}.{lang}.topn-{rank}.srt",
         search_delay=0, download_delay=0,
         rate_limit_initial_backoff=0, rate_limit_retries=0,
-        topn_recheck_days=30, topn_sidecar_enabled=True,
+        topn_sidecar_enabled=True,
         max_candidates_tried=50,
     )
     defaults.update(overrides)
@@ -133,6 +133,37 @@ class TestProcessVideoSidecar:
         data = json.loads(sc.read_text())
         assert data["clean"] is False
         assert data["saved"] == 0
+
+    def test_preserves_existing_sidecar_on_no_new_candidates(self, tmp_video: Path) -> None:
+        """When download_top_n signals no_new_candidates, scanner must keep
+        the existing saved/clean values (no .srt files were written)."""
+        config = _make_config()
+        # Existing sidecar says we have 2 subs, clean
+        write_sidecar(
+            tmp_video, "en",
+            SidecarData(target=3, saved=2, available=2, clean=True),
+        )
+        pool = MagicMock()
+        pool.discarded_providers = set()
+        # download_top_n returns the no-new-candidates sentinel
+        fake_result = DownloadResult(
+            saved_paths=[],
+            clean=True,
+            available_count=2,
+            search_ok=True,
+            no_new_candidates=True,
+        )
+        with patch("bazarr_topn.scanner.scan_video") as mock_scan, \
+             patch("bazarr_topn.scanner.download_top_n", return_value=fake_result):
+            mock_scan.return_value = MagicMock()
+            process_video(tmp_video, config, pool)
+
+        sc = sidecar_path(tmp_video, "en")
+        data = json.loads(sc.read_text())
+        # Saved count preserved at 2, NOT reset to 0
+        assert data["saved"] == 2
+        assert data["clean"] is True
+        assert data["available"] == 2
 
     def test_force_ignores_sidecar(self, tmp_video: Path) -> None:
         config = _make_config()
