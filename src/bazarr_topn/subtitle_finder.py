@@ -225,6 +225,32 @@ def find_subtitles(
     return scored
 
 
+def _reset_provider_auth(pool: ProviderPool, provider_name: str) -> None:
+    """Purge a discarded provider's auth token so the retry re-logs-in.
+
+    OpenSubtitles.com tokens can die server-side while subliminal's
+    dogpile cache still serves them as fresh: /login returns the *same*
+    token while it is valid, and each login() re-caches it, refreshing
+    the cache timestamp without extending the server-side JWT expiry.
+    Once the JWT dies, check_token() keeps handing out the dead token
+    and every download fails with 406/NoSession until the cache entry
+    ages out (hours). Subliminal defines reset_token() for exactly this
+    case but never calls it, so we do it here: clear the provider's
+    in-memory token and the shared dogpile-cached one, forcing a fresh
+    login on the next requires_auth call.
+    """
+    if provider_name != "opensubtitlescom":
+        return
+    try:
+        provider = pool[provider_name]
+        del provider.token
+        provider.token_expires_at = None
+        provider.reset_token()
+        logger.info("Reset %s auth token; retry will log in fresh", provider_name)
+    except Exception:
+        logger.debug("Could not reset %s auth token", provider_name, exc_info=True)
+
+
 def _download_with_retry(
     pool: ProviderPool,
     subtitle: Subtitle,
@@ -237,7 +263,9 @@ def _download_with_retry(
     download_subtitle and adds the provider to `discarded_providers`,
     which poisons every subsequent call for the pool's lifetime. For
     OpenSubtitles 429s this collapses a whole scan after the first rate
-    limit hit. We detect the discard, clear it, sleep, and retry.
+    limit hit. We detect the discard, clear it, sleep, and retry —
+    resetting the provider's auth token first, since the discard is just
+    as often a stale cached token (406/NoSession) as a real rate limit.
     """
     for attempt in range(retries + 1):
         before = set(pool.discarded_providers)
@@ -249,13 +277,14 @@ def _download_with_retry(
             return False
         sleep_s = initial_backoff * (2 ** attempt)
         logger.warning(
-            "Provider %s discarded on download (likely rate-limited). "
+            "Provider %s discarded on download (rate-limited or stale auth token). "
             "Sleeping %.0fs before retry %d/%d",
             subtitle.provider_name, sleep_s, attempt + 1, retries,
         )
         if sleep_s > 0:
             time.sleep(sleep_s)
         for p in newly_discarded:
+            _reset_provider_auth(pool, p)
             pool.discarded_providers.discard(p)
     return False
 

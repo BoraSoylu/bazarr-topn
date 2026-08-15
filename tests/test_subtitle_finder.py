@@ -24,6 +24,18 @@ class FakeSubtitle:
         self.id = f"{provider_name}-id"
 
 
+class FakeProvider:
+    """Stand-in for an initialized provider; records auth-reset calls."""
+
+    def __init__(self) -> None:
+        self.token = "stale-token"
+        self.token_expires_at = object()
+        self.reset_token_calls = 0
+
+    def reset_token(self) -> None:
+        self.reset_token_calls += 1
+
+
 class FakePool:
     """Fake ProviderPool that mimics subliminal's discard-on-error behavior.
 
@@ -39,12 +51,18 @@ class FakePool:
         subtitles_to_return: list[FakeSubtitle] | None = None,
     ) -> None:
         self.provider = provider
+        self.provider_obj = FakeProvider()
         self.discarded_providers: set[str] = set()
         self.fail_list_times = fail_list_times
         self.fail_download_times = fail_download_times
         self.list_calls = 0
         self.download_calls = 0
         self._subtitles = [FakeSubtitle(provider)] if subtitles_to_return is None else subtitles_to_return
+
+    def __getitem__(self, name: str) -> FakeProvider:
+        if name != self.provider:
+            raise KeyError(name)
+        return self.provider_obj
 
     def list_subtitles(self, video: Any, languages: set[Language]) -> list[FakeSubtitle]:
         self.list_calls += 1
@@ -163,6 +181,56 @@ class TestDownloadTopNRetry:
         assert result.saved_paths == []
         # initial + retries = 3 attempts for the single subtitle
         assert pool.download_calls == 3
+
+    def test_discard_retry_resets_opensubtitles_auth(
+        self, tmp_path, no_delay_config: Config
+    ) -> None:
+        """A discard-retry must purge the cached token so the retry re-logs-in.
+
+        Guards against the stale-token failure mode: a dead cached token
+        makes every download 406/NoSession, and retrying without a token
+        reset just replays the same dead token.
+        """
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(
+            fail_download_times=1,
+            subtitles_to_return=[FakeSubtitle("opensubtitlescom")],
+        )
+        result = download_top_n(
+            MagicMock(),
+            video_path,
+            Language.fromalpha2("en"),
+            no_delay_config,
+            pool,
+        )
+        assert len(result.saved_paths) == 1
+        provider = pool.provider_obj
+        assert provider.reset_token_calls == 1
+        assert not hasattr(provider, "token")
+        assert provider.token_expires_at is None
+
+    def test_discard_retry_leaves_other_providers_alone(
+        self, tmp_path, no_delay_config: Config
+    ) -> None:
+        """Only opensubtitlescom has the token-cache bug; don't touch others."""
+        video_path = tmp_path / "movie.mkv"
+        video_path.write_bytes(b"x")
+        pool = FakePool(
+            provider="podnapisi",
+            fail_download_times=1,
+            subtitles_to_return=[FakeSubtitle("podnapisi")],
+        )
+        download_top_n(
+            MagicMock(),
+            video_path,
+            Language.fromalpha2("en"),
+            no_delay_config,
+            pool,
+        )
+        provider = pool.provider_obj
+        assert provider.reset_token_calls == 0
+        assert provider.token == "stale-token"
 
 
 class TestLogMessage:
