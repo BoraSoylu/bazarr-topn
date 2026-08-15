@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import tempfile
 import time
 from collections.abc import Iterator
@@ -143,6 +144,11 @@ class DownloadResult:
     no_new_candidates: bool = False
 
 
+# Radarr embeds the IMDb ID in the movie folder name, e.g.
+# "Blade Runner 2049 (2017) [imdbid-tt1856101]".
+_IMDB_ID_IN_PATH = re.compile(r"\[imdbid-(tt\d+)\]", re.IGNORECASE)
+
+
 def scan_video(video_path: str | Path) -> Video:
     """Scan a video file and return a subliminal Video object.
 
@@ -151,11 +157,23 @@ def scan_video(video_path: str | Path) -> Video:
     subtitle searches.
     """
     from subliminal import scan_video as _scan
+    from subliminal.video import Movie
 
     video = _scan(str(video_path))
     # Skip omdb refiner — subliminal's built-in OMDB API key is expired,
     # causing 401 tracebacks on every video. tmdb provides the same metadata.
     refine(video, refiners=("hash", "metadata", "tmdb", "tvdb"))
+    # Refiners often leave imdb_id unset, forcing providers into text
+    # search, which OpenSubtitles' engine can whiff entirely (e.g. query
+    # "blade runner 2049" returns 0 results while imdb_id finds 19).
+    # Radarr already wrote the answer into the folder name — use it.
+    # Movies only: an episode path's [imdbid-...] would be the series ID,
+    # not the episode's.
+    if isinstance(video, Movie) and not video.imdb_id:
+        m = _IMDB_ID_IN_PATH.search(str(video_path))
+        if m:
+            video.imdb_id = m.group(1).lower()
+            logger.debug("IMDb ID %s taken from path", video.imdb_id)
     logger.debug(
         "Scanned %s: title=%r year=%s imdb_id=%s",
         video_path,

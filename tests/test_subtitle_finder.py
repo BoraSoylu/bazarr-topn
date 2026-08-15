@@ -233,6 +233,64 @@ class TestDownloadTopNRetry:
         assert provider.token == "stale-token"
 
 
+class TestScanVideoImdbFromPath:
+    """Refiners often leave imdb_id unset; Radarr's [imdbid-ttXXX] folder
+    tag is authoritative and rescues titles that OpenSubtitles' text
+    search whiffs on (e.g. "blade runner 2049" returns 0 results)."""
+
+    PATH = (
+        "/media/movies/Blade Runner 2049 (2017) [imdbid-tt1856101]/"
+        "Blade Runner 2049 (2017) [imdbid-tt1856101] Remux-2160p.mkv"
+    )
+
+    def _scan(self, monkeypatch: pytest.MonkeyPatch, path: str, movie):
+        import subliminal
+
+        from bazarr_topn import subtitle_finder
+
+        monkeypatch.setattr(subliminal, "scan_video", lambda p: movie)
+        monkeypatch.setattr(subtitle_finder, "refine", lambda *a, **k: None)
+        return subtitle_finder.scan_video(path)
+
+    def test_movie_imdb_id_filled_from_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from subliminal.video import Movie
+
+        movie = Movie(self.PATH, "Blade Runner 2049")
+        video = self._scan(monkeypatch, self.PATH, movie)
+        assert video.imdb_id == "tt1856101"
+
+    def test_refined_imdb_id_wins_over_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from subliminal.video import Movie
+
+        movie = Movie(self.PATH, "Blade Runner 2049", imdb_id="tt0000001")
+        video = self._scan(monkeypatch, self.PATH, movie)
+        assert video.imdb_id == "tt0000001"
+
+    def test_path_without_tag_left_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from subliminal.video import Movie
+
+        path = "/media/movies/Fallen (1998)/Fallen (1998).mkv"
+        movie = Movie(path, "Fallen")
+        video = self._scan(monkeypatch, path, movie)
+        assert video.imdb_id is None
+
+    def test_episode_not_touched(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A series folder's [imdbid-...] would be the show's ID, not the
+        episode's — never copy it onto an Episode."""
+        from subliminal.video import Episode
+
+        path = "/media/tv/Show (2020) [imdbid-tt7654321]/Season 01/ep.mkv"
+        episode = Episode(path, "Show", 1, 1)
+        video = self._scan(monkeypatch, path, episode)
+        assert video.imdb_id is None
+
+
 class TestLogMessage:
     """Issue 3: log message should distinguish 0-returned from N-filtered."""
 
